@@ -43,7 +43,7 @@ mkdir -p "$OUT_DIR"
 
 echo "== Exporting from weights: $WEIGHTS (output prefix: '${PREFIX:-<none>}') =="
 echo "== Installing dependencies =="
-pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/cpu
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 # NOTE: onnx2tf is only used here for float ONNX -> SavedModel conversion.
 # We deliberately never pass its quantization flags (-oiqt / -odrqt), because
@@ -54,14 +54,15 @@ pip install --break-system-packages torch --index-url https://download.pytorch.o
 #   curl -L -o cal.npy '<url from common_functions.py>'
 # Doing dynamic-range quantization ourselves via tf.lite.TFLiteConverter
 # avoids that code path entirely and produces the identical quant scheme.
-pip install --break-system-packages \
+pip install \
 ultralytics \
 onnx \
 onnxsim \
 onnx_graphsurgeon \
 sng4onnx \
 onnx2tf \
-tensorflow
+tensorflow \
+tf_keras
 
 # opset: YOLO26 is a from-scratch NMS-free end-to-end head (native end-to-end
 # inference, no separate NMS post-processing needed in the exported graph).
@@ -108,8 +109,13 @@ np.save('calibration_image_sample_data_20x128x128x3_float32.npy', arr)
 "
 
 echo "== Converting ONNX -> SavedModel (float, no quantization) =="
-onnx2tf -i yolo_416.onnx -o "$OUT_DIR/${PREFIX}sm_416"
-onnx2tf -i yolo_320.onnx -o "$OUT_DIR/${PREFIX}sm_320"
+# -osd / --output_signaturedefs: onnx2tf does NOT embed a signature_def in
+# the SavedModel by default, which makes TFLiteConverter.from_saved_model()
+# below fail with "Only support at least one signature key." This flag is
+# what actually gives the SavedModel a usable signature -- required, not
+# optional, for the quantization steps that follow.
+onnx2tf -i yolo_416.onnx -o "$OUT_DIR/${PREFIX}sm_416" -osd
+onnx2tf -i yolo_320.onnx -o "$OUT_DIR/${PREFIX}sm_320" -osd
 
 echo "== Quantizing to TFLite dynamic range (weights int8, activations float) =="
 python3 <<PYEOF
