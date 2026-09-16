@@ -213,7 +213,7 @@ class BenchmarkRunner(private val context: Context) {
 }
 
 /** Loads the shared test image used for every timed run. Swap for a loop over
- * test_data/images/*.jpg if you want per-image latency variance too. */
+ * test_data/images (the *.jpg files there) if you want per-image latency variance too. */
 fun loadSampleImage(context: Context, assetPath: String = "sample_panel.jpg"): Bitmap {
     context.assets.open(assetPath).use { return BitmapFactory.decodeStream(it) }
 }
