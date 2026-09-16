@@ -72,6 +72,17 @@ for SIZE in 320 416; do
     # "Only support at least one signature key." Required, not optional.
     onnx2tf -i "$ONNX_FILE" -o "$OUT_DIR/${OUT_PREFIX}_${SIZE}_sm" -osd
 
+    # onnx2tf can fail on an unsupported op or internal error without
+    # necessarily returning a nonzero exit code the shell's `set -e` catches
+    # (same class of issue as export_yolox.sh's export_onnx.py step) --
+    # verify the actual SavedModel file exists before trusting this step
+    # succeeded, or the quantization steps below fail with a confusing,
+    # unrelated-looking "SavedModel file does not exist" error instead.
+    if [ ! -f "$OUT_DIR/${OUT_PREFIX}_${SIZE}_sm/saved_model.pb" ]; then
+        echo "ERROR: onnx2tf did not produce a SavedModel for size $SIZE -- scroll up for its actual output/error." >&2
+        exit 1
+    fi
+
     echo "== Quantizing to TFLite dynamic range ($SIZE) =="
     python3 <<PYEOF
 import tensorflow as tf
