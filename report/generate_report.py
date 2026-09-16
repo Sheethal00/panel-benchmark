@@ -30,6 +30,7 @@ def load_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame":
             continue  # handled separately by load_pipeline_results
         data = json.loads(f.read_text())
         pss_peak_mb = round(data.get("pss_peak_during_inference_kb", 0) / 1024, 1)
+        pss_baseline_mb = round(data.get("pss_baseline_kb", 0) / 1024, 1)
         rows.append({
             "config": data.get("config_name"),
             "task": data.get("task"),
@@ -41,8 +42,17 @@ def load_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame":
             "latency_p50_ms": round(data.get("latency_p50_ms", -1), 2),
             "latency_p90_ms": round(data.get("latency_p90_ms", -1), 2),
             "latency_p99_ms": round(data.get("latency_p99_ms", -1), 2),
+            "pss_baseline_mb": pss_baseline_mb,
             "pss_after_load_mb": round(data.get("pss_after_load_kb", 0) / 1024, 1),
             "pss_peak_mb": pss_peak_mb,
+            # Isolates this model's OWN memory cost from the shared overhead of
+            # bundling three runtimes (TFLite+GPU, ONNX Runtime, ML Kit) in this
+            # benchmark harness -- the absolute pss_peak_mb (checked against the
+            # 200MB budget below) is what matters for "will this fit on device";
+            # this delta is what matters for "which candidate costs more than
+            # another," a question the absolute number can't answer when every
+            # config's absolute peak is dominated by the same shared baseline.
+            "pss_delta_mb": round(pss_peak_mb - pss_baseline_mb, 1) if pss_peak_mb > 0 and pss_baseline_mb > 0 else -1.0,
             "within_budget": "PASS" if 0 < pss_peak_mb <= budget_mb else "FAIL",
             "device": data.get("device_model"),
             "soc": data.get("soc"),
@@ -59,6 +69,7 @@ def load_pipeline_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame"
         data = json.loads(f.read_text())
         error = data.get("error", "")[:200] if data.get("error") else ""
         peak_mb = round(data.get("pss_peak_overall_kb", 0) / 1024, 1)
+        baseline_mb = round(data.get("pss_baseline_kb", 0) / 1024, 1)
         after_detector_release_mb = round(data.get("pss_after_detector_release_kb", 0) / 1024, 1)
         after_detector_load_mb = round(data.get("pss_after_detector_load_kb", 0) / 1024, 1)
         rows.append({
@@ -69,10 +80,14 @@ def load_pipeline_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame"
             "detector_p50_ms": round(data.get("detector_latency_p50_ms", -1), 2),
             "ocr_p50_ms": round(data.get("ocr_latency_p50_ms", -1), 2),
             "end_to_end_p50_ms": round(data.get("end_to_end_p50_ms", -1), 2),
+            "pss_baseline_mb": baseline_mb,
             "pss_after_detector_load_mb": after_detector_load_mb,
             "pss_after_detector_release_mb": after_detector_release_mb,
             "detector_mem_reclaimed_mb": round(after_detector_load_mb - after_detector_release_mb, 1),
             "pss_peak_overall_mb": peak_mb,
+            # Same isolation logic as load_results()'s pss_delta_mb -- this
+            # pipeline's own memory cost above the shared three-runtime baseline.
+            "pss_delta_mb": round(peak_mb - baseline_mb, 1) if peak_mb > 0 and baseline_mb > 0 else -1.0,
             # A pipeline that errored is never a budget PASS, regardless of what its
             # (likely baseline-only, pre-failure) peak memory number happens to show.
             "within_budget": "FAIL" if error else ("PASS" if 0 < peak_mb <= budget_mb else "FAIL"),
@@ -97,7 +112,7 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     def table_html(d):
         cols = ["config", "runtime", "requested_delegate", "actual_delegate",
                 "model_size_mb", "load_time_ms", "latency_p50_ms", "latency_p90_ms",
-                "latency_p99_ms", "pss_after_load_mb", "pss_peak_mb", "within_budget"]
+                "latency_p99_ms", "pss_peak_mb", "pss_delta_mb", "within_budget"]
         styled = d[cols].copy()
         return styled.to_html(index=False, border=0, classes="results-table", escape=False,
                                formatters={"within_budget": lambda v:
@@ -105,8 +120,8 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
 
     def pipeline_table_html(d):
         cols = ["pipeline", "detector", "ocr", "iterations", "detector_p50_ms", "ocr_p50_ms",
-                "end_to_end_p50_ms", "pss_after_detector_load_mb", "pss_after_detector_release_mb",
-                "detector_mem_reclaimed_mb", "pss_peak_overall_mb", "within_budget"]
+                "end_to_end_p50_ms", "pss_peak_overall_mb", "pss_delta_mb",
+                "detector_mem_reclaimed_mb", "within_budget"]
         styled = d[cols].copy()
         return styled.to_html(index=False, border=0, classes="results-table", escape=False,
                                formatters={"within_budget": lambda v:
@@ -122,7 +137,9 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
   <div class="note">
     <strong>pss_peak_overall_mb</strong> is the number that matters for the 200MB budget --
     it's the true worst-case memory seen across the whole detector-then-OCR cycle, not each
-    stage's isolated peak. <strong>detector_mem_reclaimed_mb</strong> shows how much memory
+    stage's isolated peak. <strong>pss_delta_mb</strong> isolates this pipeline's own cost above
+    its fresh-process baseline, for comparing candidates against each other rather than checking
+    device fit. <strong>detector_mem_reclaimed_mb</strong> shows how much memory
     actually came back after calling release() on the detector, before the OCR model loaded --
     a small or negative value here means native/delegate memory isn't being freed promptly,
     which is worth investigating in the real app even if the pipeline still passes budget.
@@ -165,7 +182,16 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
 
   <h2>Detector models (isolated)</h2>
   {table_html(detector_df) if not detector_df.empty else "<p>No detector results.</p>"}
-  <div class="note">Sorted by p50 latency, fastest first. Top row is the current leader (subject to passing the memory budget).</div>
+  <div class="note">
+    Sorted by p50 latency, fastest first. Top row is the current leader (subject to passing the memory budget).
+    <strong>pss_peak_mb</strong> is the absolute number checked against the 200MB budget.
+    <strong>pss_delta_mb</strong> (peak minus this config's own fresh-process baseline) isolates
+    this model's own memory cost from the ~176MB shared overhead of bundling three runtimes
+    (TFLite+GPU, ONNX Runtime, ML Kit) in this benchmark harness -- use pss_delta_mb to compare
+    candidates against each other, and pss_peak_mb to check device fit. Your real production app
+    will ship only the one winning runtime, so its actual baseline will be far lower than this
+    harness's -- pss_peak_mb here is a conservative (over-)estimate for that reason, not a final number.
+  </div>
 
   <h2>OCR models (isolated)</h2>
   {table_html(ocr_df) if not ocr_df.empty else "<p>No OCR results.</p>"}
