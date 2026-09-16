@@ -53,6 +53,12 @@ def load_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame":
             # another," a question the absolute number can't answer when every
             # config's absolute peak is dominated by the same shared baseline.
             "pss_delta_mb": round(pss_peak_mb - pss_baseline_mb, 1) if pss_peak_mb > 0 and pss_baseline_mb > 0 else -1.0,
+            # Memory cost specifically at model load time, before any inference runs --
+            # this is where a model's weight buffers actually get allocated, so it
+            # correlates with model_size_mb far more directly than pss_delta_mb does
+            # for small models (1-10MB), where peak-during-inference barely differs
+            # from after-load and both can round to ~0 against a large shared baseline.
+            "load_delta_mb": round(round(data.get("pss_after_load_kb", 0) / 1024, 1) - pss_baseline_mb, 1) if pss_baseline_mb > 0 else -1.0,
             "within_budget": "PASS" if 0 < pss_peak_mb <= budget_mb else "FAIL",
             "device": data.get("device_model"),
             "soc": data.get("soc"),
@@ -112,7 +118,7 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     def table_html(d):
         cols = ["config", "runtime", "requested_delegate", "actual_delegate",
                 "model_size_mb", "load_time_ms", "latency_p50_ms", "latency_p90_ms",
-                "latency_p99_ms", "pss_peak_mb", "pss_delta_mb", "within_budget"]
+                "latency_p99_ms", "pss_peak_mb", "pss_delta_mb", "load_delta_mb", "within_budget"]
         styled = d[cols].copy()
         return styled.to_html(index=False, border=0, classes="results-table", escape=False,
                                formatters={"within_budget": lambda v:
@@ -188,9 +194,15 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     <strong>pss_delta_mb</strong> (peak minus this config's own fresh-process baseline) isolates
     this model's own memory cost from the ~176MB shared overhead of bundling three runtimes
     (TFLite+GPU, ONNX Runtime, ML Kit) in this benchmark harness -- use pss_delta_mb to compare
-    candidates against each other, and pss_peak_mb to check device fit. Your real production app
-    will ship only the one winning runtime, so its actual baseline will be far lower than this
-    harness's -- pss_peak_mb here is a conservative (over-)estimate for that reason, not a final number.
+    candidates against each other, and pss_peak_mb to check device fit. For small models
+    (a few MB), pss_delta_mb often rounds to ~0 since peak-during-inference barely exceeds
+    the after-load footprint -- <strong>load_delta_mb</strong> (memory right after load(),
+    before any inference) is usually the more useful number for small models: it isolates
+    exactly the cost of mapping the model's weights into memory, which scales with
+    model_size_mb far more visibly than pss_delta_mb does at this size range.
+    Your real production app will ship only the one winning runtime, so its actual baseline
+    will be far lower than this harness's -- pss_peak_mb here is a conservative
+    (over-)estimate for that reason, not a final number.
   </div>
 
   <h2>OCR models (isolated)</h2>
