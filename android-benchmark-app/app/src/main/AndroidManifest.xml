@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <application
+        android:allowBackup="false"
+        android:label="PanelBenchmark"
+        android:theme="@style/Theme.PanelBenchmark">
+
+        <!--
+          MainActivity supports two modes:
+          1. Manual: tap "Run Benchmark" in the UI.
+          2. Automated: launched by scripts/run_benchmark_matrix.py via
+             `adb shell am start -n com.panelbench.app/.MainActivity
+                --es config_name <name> --es auto_run true`
+             It runs the single named config from benchmark_config.json,
+             writes results, then finishes automatically -- so a host script
+             can loop over the full model matrix unattended.
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

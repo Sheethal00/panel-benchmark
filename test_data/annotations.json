@@ -1,0 +1,22 @@
+{
+  "_comment": "Ground truth for the small held-out set of panel photos used to sanity-check accuracy alongside latency/memory. Not a replacement for a proper eval set once you pick finalist models.",
+  "images": [
+    {
+      "file": "images/panel_001.jpg",
+      "devices": [
+        {
+          "bbox": [120, 340, 260, 410],
+          "class": "mcb",
+          "rating_text": "32A",
+          "voltage_text": "415V"
+        },
+        {
+          "bbox": [270, 340, 410, 410],
+          "class": "contactor",
+          "rating_text": "25A",
+          "voltage_text": "230V"
+        }
+      ]
+    }
+  ]
+}

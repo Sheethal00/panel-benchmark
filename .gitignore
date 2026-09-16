@@ -1,0 +1,22 @@
+# Android build artifacts
+android-benchmark-app/.gradle/
+android-benchmark-app/build/
+android-benchmark-app/app/build/
+android-benchmark-app/local.properties
+*.iml
+.idea/
+
+# Model binaries (large; track via git-lfs or external storage instead)
+models/**/*.tflite
+models/**/*.onnx
+models/**/*.param
+models/**/*.bin
+
+# Runtime outputs
+results/*/
+report/*.html
+report/*.csv
+
+# Python
+__pycache__/
+*.pyc

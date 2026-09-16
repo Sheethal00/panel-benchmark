@@ -1,0 +1,179 @@
+{
+  "_comment": "Target device profile: Android 9.0+ (API 28+), Snapdragon 845-era (2018+), 3GB RAM, 200MB total app memory budget, CPU/GPU only (no NPU/NNAPI). NNAPI configs are kept commented as optional/secondary -- 2018-era NNAPI drivers are inconsistent and often fall back to CPU silently, and the target spec only calls out CPU/GPU anyway.",
+  "memory_budget_mb": 200,
+  "models": [
+    {
+      "name": "yolov8n_fp32_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolov8n_fp32.tflite",
+      "runtime": "tflite",
+      "delegate": "cpu",
+      "input_width": 640,
+      "input_height": 640,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolov8n_int8_cpu_xnnpack",
+      "task": "detector",
+      "model_path": "models/detector/yolov8n_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 640,
+      "input_height": 640,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolov8n_int8_gpu",
+      "task": "detector",
+      "model_path": "models/detector/yolov8n_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "gpu",
+      "input_width": 640,
+      "input_height": 640,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolo_nas_s_onnx_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo_nas_s.onnx",
+      "runtime": "onnx",
+      "delegate": "cpu",
+      "input_width": 640,
+      "input_height": 640,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolo_416_dynamic_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo_416_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolo_416_dynamic_gpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo_416_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "gpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolo_320_dynamic_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo_320_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 320,
+      "input_height": 320,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolo_416_int8_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo_416_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "yolo_416_int8_gpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo_416_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "gpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/labels.txt"
+    },
+    {
+      "name": "paddleocr_mobile_cpu",
+      "task": "ocr",
+      "model_path": "models/ocr/paddleocr_mobile.tflite",
+      "runtime": "tflite",
+      "delegate": "cpu",
+      "input_width": 320,
+      "input_height": 48,
+      "warmup_runs": 10,
+      "timed_runs": 50
+    },
+    {
+      "name": "mlkit_text_recognition",
+      "task": "ocr",
+      "model_path": "builtin",
+      "runtime": "mlkit",
+      "delegate": "cpu",
+      "input_width": 0,
+      "input_height": 0,
+      "warmup_runs": 5,
+      "timed_runs": 30
+    }
+  ],
+  "pipelines": [
+    {
+      "name": "yolov8n_int8_to_paddleocr",
+      "detector_config": "yolov8n_int8_cpu_xnnpack",
+      "ocr_config": "paddleocr_mobile_cpu",
+      "iterations": 5
+    },
+    {
+      "name": "yolov8n_int8_gpu_to_paddleocr",
+      "detector_config": "yolov8n_int8_gpu",
+      "ocr_config": "paddleocr_mobile_cpu",
+      "iterations": 5
+    },
+    {
+      "name": "yolov8n_int8_to_mlkit",
+      "detector_config": "yolov8n_int8_cpu_xnnpack",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "yolo_416_int8_to_paddleocr",
+      "detector_config": "yolo_416_int8_cpu",
+      "ocr_config": "paddleocr_mobile_cpu",
+      "iterations": 5
+    },
+    {
+      "name": "yolo_416_int8_to_mlkit",
+      "detector_config": "yolo_416_int8_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "yolo_320_dynamic_to_mlkit",
+      "detector_config": "yolo_320_dynamic_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    }
+  ]
+}
