@@ -229,6 +229,82 @@
       "labels_path": "models/detector/yolox_nano_labels.txt"
     },
     {
+      "name": "nanodet_plus_320_dynamic_cpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_320_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 320,
+      "input_height": 320,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
+      "name": "nanodet_plus_320_int8_cpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_320_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 320,
+      "input_height": 320,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
+      "name": "nanodet_plus_416_dynamic_cpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_416_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
+      "name": "nanodet_plus_416_dynamic_gpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_416_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "gpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
+      "name": "nanodet_plus_416_int8_cpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_416_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
+      "name": "nanodet_plus_416_int8_gpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_416_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "gpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
       "name": "paddleocr_mobile_cpu",
       "task": "ocr",
       "model_path": "models/ocr/paddleocr_mobile.tflite",
@@ -303,6 +379,12 @@
     {
       "name": "yolox_nano_int8_to_mlkit",
       "detector_config": "yolox_nano_int8_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "nanodet_plus_320_int8_to_mlkit",
+      "detector_config": "nanodet_plus_320_int8_cpu",
       "ocr_config": "mlkit_text_recognition",
       "iterations": 5
     }
