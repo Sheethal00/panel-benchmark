@@ -108,6 +108,14 @@ arr = np.random.rand(20, 128, 128, 3).astype(np.float32)
 np.save('calibration_image_sample_data_20x128x128x3_float32.npy', arr)
 "
 
+# Keep the raw ONNX files themselves alongside the TFLite outputs below, so
+# each can also be benchmarked directly through the ONNX Runtime path
+# (runtime: "onnx" in benchmark_config.json) -- same weights, two runtimes,
+# directly comparable, not just via onnx2tf -> TFLite.
+cp yolo_416.onnx "$OUT_DIR/${PREFIX}yolo_416.onnx"
+cp yolo_320.onnx "$OUT_DIR/${PREFIX}yolo_320.onnx"
+echo "wrote $OUT_DIR/${PREFIX}yolo_416.onnx and ${PREFIX}yolo_320.onnx (for direct ONNX Runtime benchmarking)"
+
 echo "== Converting ONNX -> SavedModel (float, no quantization) =="
 # -osd / --output_signaturedefs: onnx2tf does NOT embed a signature_def in
 # the SavedModel by default, which makes TFLiteConverter.from_saved_model()

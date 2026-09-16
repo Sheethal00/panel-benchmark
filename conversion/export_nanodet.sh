@@ -66,6 +66,13 @@ for SIZE in 320 416; do
         exit 1
     fi
 
+    # Keep a copy of the raw ONNX file itself alongside the TFLite outputs
+    # below, so it can also be benchmarked directly through the ONNX Runtime
+    # path (runtime: "onnx" in benchmark_config.json), not just via
+    # onnx2tf -> TFLite -- same weights, two runtimes, directly comparable.
+    cp "$ONNX_FILE" "$OUT_DIR/${OUT_PREFIX}_${SIZE}.onnx"
+    echo "wrote $OUT_DIR/${OUT_PREFIX}_${SIZE}.onnx (for direct ONNX Runtime benchmarking)"
+
     echo "== Converting ONNX -> SavedModel ($SIZE) =="
     # onnx2tf's convert() unconditionally calls an internal float-vs-quantized
     # sanity check that otherwise tries to download a small dummy .npy from a
