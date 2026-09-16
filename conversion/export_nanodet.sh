@@ -66,61 +66,50 @@ for SIZE in 320 416; do
         exit 1
     fi
 
-    echo "== Converting ONNX -> SavedModel ($SIZE) =="
-    # -osd / --output_signaturedefs: onnx2tf doesn't embed a signature_def by
-    # default, which makes TFLiteConverter.from_saved_model() below fail with
-    # "Only support at least one signature key." Required, not optional.
-    onnx2tf -i "$ONNX_FILE" -o "$OUT_DIR/${OUT_PREFIX}_${SIZE}_sm" -osd
+    echo "== Converting ONNX -> TFLite directly via onnx2tf ($SIZE) =="
+    # This model's ShuffleNetV2 backbone uses GroupConvolution, which SavedModel
+    # export doesn't support -- onnx2tf skips SavedModel entirely for it and
+    # writes TFLite files directly instead (confirmed from actual run output:
+    # "WARNING: ... GroupConvolution ... saved_model does not support
+    # GroupConvolution" followed by "Float32 tflite output complete!"). So
+    # unlike export_yolo.sh/export_yolox.sh, we use onnx2tf's own direct
+    # quantization flags here rather than routing through SavedModel +
+    # TFLiteConverter, which would never produce a SavedModel for this model.
+    #
+    # -odrqt: dynamic-range quantized TFLite, no calibration data needed.
+    # -oiqt: full int8 quantized TFLite. Calibration is onnx2tf's own internal
+    # random-data default here (no --custom_input_op_name_np_data_path given)
+    # -- fine for latency/memory feasibility numbers this week, same synthetic-
+    # calibration caveat as export_yolox.sh; swap in real panel photos later.
+    #
+    # The calibration_image_sample_data npy below is a SEPARATE thing: it's
+    # for onnx2tf's own internal float-vs-quantized sanity check, which
+    # otherwise tries to download a small dummy file from a GitHub release tag
+    # that can go stale and 404 -- same workaround as export_yolo.sh.
+    python3 -c "
+import numpy as np
+arr = np.random.rand(20, 128, 128, 3).astype(np.float32)
+np.save('calibration_image_sample_data_20x128x128x3_float32.npy', arr)
+"
+    onnx2tf -i "$ONNX_FILE" -o "$OUT_DIR/${OUT_PREFIX}_${SIZE}_out" -odrqt -oiqt
 
-    # onnx2tf can fail on an unsupported op or internal error without
-    # necessarily returning a nonzero exit code the shell's `set -e` catches
-    # (same class of issue as export_yolox.sh's export_onnx.py step) --
-    # verify the actual SavedModel file exists before trusting this step
-    # succeeded, or the quantization steps below fail with a confusing,
-    # unrelated-looking "SavedModel file does not exist" error instead.
-    if [ ! -f "$OUT_DIR/${OUT_PREFIX}_${SIZE}_sm/saved_model.pb" ]; then
-        echo "ERROR: onnx2tf did not produce a SavedModel for size $SIZE -- scroll up for its actual output/error." >&2
+    # Don't hardcode onnx2tf's exact output filenames -- find whatever it
+    # actually produced by pattern, and fail with a directory listing if a
+    # pattern doesn't match, rather than guess wrong and cascade into another
+    # confusing downstream error.
+    DYNAMIC_SRC=$(find "$OUT_DIR/${OUT_PREFIX}_${SIZE}_out" -iname "*dynamic_range_quant*.tflite" | head -n 1)
+    INT8_SRC=$(find "$OUT_DIR/${OUT_PREFIX}_${SIZE}_out" -iname "*full_integer_quant*.tflite" | head -n 1)
+
+    if [ -z "$DYNAMIC_SRC" ] || [ -z "$INT8_SRC" ]; then
+        echo "ERROR: expected onnx2tf outputs not found for size $SIZE. Actual contents of $OUT_DIR/${OUT_PREFIX}_${SIZE}_out:" >&2
+        ls -la "$OUT_DIR/${OUT_PREFIX}_${SIZE}_out" >&2
         exit 1
     fi
 
-    echo "== Quantizing to TFLite dynamic range ($SIZE) =="
-    python3 <<PYEOF
-import tensorflow as tf
-
-converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/${OUT_PREFIX}_${SIZE}_sm")
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-tflite_model = converter.convert()
-with open("$OUT_DIR/${OUT_PREFIX}_${SIZE}_dynamic.tflite", "wb") as f:
-    f.write(tflite_model)
-print("wrote $OUT_DIR/${OUT_PREFIX}_${SIZE}_dynamic.tflite")
-PYEOF
-
-    echo "== Exporting INT8 ($SIZE, calibrated on synthetic placeholder images) =="
-    python3 <<PYEOF
-import numpy as np
-import tensorflow as tf
-
-IMG_SIZE = $SIZE
-
-# Synthetic random images as a placeholder -- same caveat as export_yolox.sh:
-# gives a working int8 export for latency/memory feasibility numbers this
-# week, but swap in ~100-200 real panel crops once that data exists.
-def representative_dataset():
-    rng = np.random.default_rng(seed=0)
-    for _ in range(20):
-        img = rng.random((1, IMG_SIZE, IMG_SIZE, 3), dtype=np.float32)
-        yield [img]
-
-converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/${OUT_PREFIX}_${SIZE}_sm")
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-converter.representative_dataset = representative_dataset
-converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-tflite_model = converter.convert()
-
-with open("$OUT_DIR/${OUT_PREFIX}_${SIZE}_int8.tflite", "wb") as f:
-    f.write(tflite_model)
-print("wrote $OUT_DIR/${OUT_PREFIX}_${SIZE}_int8.tflite")
-PYEOF
+    cp "$DYNAMIC_SRC" "$OUT_DIR/${OUT_PREFIX}_${SIZE}_dynamic.tflite"
+    cp "$INT8_SRC" "$OUT_DIR/${OUT_PREFIX}_${SIZE}_int8.tflite"
+    echo "wrote $OUT_DIR/${OUT_PREFIX}_${SIZE}_dynamic.tflite (from $DYNAMIC_SRC)"
+    echo "wrote $OUT_DIR/${OUT_PREFIX}_${SIZE}_int8.tflite (from $INT8_SRC)"
 done
 
 echo "== Writing labels.txt (COCO-80 -- NanoDet-Plus-m is COCO-pretrained) =="
