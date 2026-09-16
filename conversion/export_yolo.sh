@@ -7,13 +7,21 @@ set -e
 # "models" list expects: yolo_416_dynamic, yolo_320_dynamic, yolo_416_int8.
 #
 # Usage:
-#   ./export_yolo.sh                 # defaults to yolo26n.pt
-#   ./export_yolo.sh yolo11n.pt      # any Ultralytics-compatible weights name
-#   ./export_yolo.sh runs/train/exp/weights/best.pt   # your own fine-tuned checkpoint
+#   ./export_yolo.sh                          # yolo26n.pt, generic output names
+#   ./export_yolo.sh yolo11n.pt yolo11n       # yolo11n.pt, TAGGED output names
+#                                              # (yolo11n_416_dynamic.tflite, etc.) --
+#                                              # sits ALONGSIDE previous exports instead
+#                                              # of overwriting them
+#   ./export_yolo.sh runs/train/exp/weights/best.pt panel-finetuned
 #
 # Run this INSIDE an activated venv:
 #   python3 -m venv panel-detector-venv && source panel-detector-venv/bin/activate
-#   ./export_yolo.sh yolo11n.pt
+#   ./export_yolo.sh yolo11n.pt yolo11n
+#
+# IMPORTANT: if you're comparing multiple YOLO generations (e.g. YOLO26n vs YOLO11n),
+# always pass a TAG on every run after the first. Without one, output filenames are
+# fixed generic names (yolo_416_dynamic.tflite etc.) and a second run will silently
+# overwrite the first's exports.
 #
 # Output filenames are generic (yolo_416_dynamic.tflite etc.) regardless of
 # which architecture you point this at -- swap WEIGHTS and re-run to compare
@@ -28,10 +36,12 @@ set -e
 # ---------------------------------------------------------------------------
 
 WEIGHTS="${1:-yolo26n.pt}"
+TAG="${2:-}"
+PREFIX="${TAG:+${TAG}_}"   # e.g. TAG=yolo11n -> PREFIX="yolo11n_"; TAG unset -> PREFIX=""
 OUT_DIR="../models/detector"
 mkdir -p "$OUT_DIR"
 
-echo "== Exporting from weights: $WEIGHTS =="
+echo "== Exporting from weights: $WEIGHTS (output prefix: '${PREFIX:-<none>}') =="
 echo "== Installing dependencies =="
 pip install --break-system-packages torch --index-url https://download.pytorch.org/whl/cpu
 
@@ -98,16 +108,16 @@ np.save('calibration_image_sample_data_20x128x128x3_float32.npy', arr)
 "
 
 echo "== Converting ONNX -> SavedModel (float, no quantization) =="
-onnx2tf -i yolo_416.onnx -o "$OUT_DIR/sm_416"
-onnx2tf -i yolo_320.onnx -o "$OUT_DIR/sm_320"
+onnx2tf -i yolo_416.onnx -o "$OUT_DIR/${PREFIX}sm_416"
+onnx2tf -i yolo_320.onnx -o "$OUT_DIR/${PREFIX}sm_320"
 
 echo "== Quantizing to TFLite dynamic range (weights int8, activations float) =="
 python3 <<PYEOF
 import tensorflow as tf
 
 pairs = [
-    ("$OUT_DIR/sm_416", "$OUT_DIR/yolo_416_dynamic.tflite"),
-    ("$OUT_DIR/sm_320", "$OUT_DIR/yolo_320_dynamic.tflite"),
+    ("$OUT_DIR/${PREFIX}sm_416", "$OUT_DIR/${PREFIX}yolo_416_dynamic.tflite"),
+    ("$OUT_DIR/${PREFIX}sm_320", "$OUT_DIR/${PREFIX}yolo_320_dynamic.tflite"),
 ]
 for saved_model_dir, out_path in pairs:
     converter = tf.lite.TFLiteConverter.from_saved_model(saved_model_dir)
@@ -166,7 +176,7 @@ def representative_dataset():
         img = load_image(p)
         yield [tf.expand_dims(img, axis=0)]
 
-converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/sm_416")
+converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/${PREFIX}sm_416")
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
 converter.representative_dataset = representative_dataset
 converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
@@ -174,9 +184,9 @@ converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
 # inference code expects quantized tensors at the model boundary instead.
 tflite_model = converter.convert()
 
-with open("$OUT_DIR/yolo_416_int8.tflite", "wb") as f:
+with open("$OUT_DIR/${PREFIX}yolo_416_int8.tflite", "wb") as f:
     f.write(tflite_model)
-print("wrote $OUT_DIR/yolo_416_int8.tflite")
+print("wrote $OUT_DIR/${PREFIX}yolo_416_int8.tflite")
 PYEOF
 
 echo "== Writing labels.txt (from model's own class names) =="
@@ -191,24 +201,21 @@ python3 -c "
 from ultralytics import YOLO
 model = YOLO('$WEIGHTS')
 names = model.names
-with open('$OUT_DIR/labels.txt', 'w') as f:
+with open('$OUT_DIR/${PREFIX}labels.txt', 'w') as f:
     for i in sorted(names.keys()):
         f.write(names[i] + '\n')
-print('wrote $OUT_DIR/labels.txt (' + str(len(names)) + ' classes from $WEIGHTS)')
+print('wrote $OUT_DIR/${PREFIX}labels.txt (' + str(len(names)) + ' classes from $WEIGHTS)')
 "
 
 echo ""
 echo "== Done. Exported models: =="
-ls -la "$OUT_DIR"/*.tflite "$OUT_DIR"/labels.txt
+ls -la "$OUT_DIR"/${PREFIX}*.tflite "$OUT_DIR/${PREFIX}labels.txt"
 
 echo ""
 echo "Next:"
 echo "  1. Copy these into the Android app's assets so they're bundled in the APK:"
-echo "     cp $OUT_DIR/*.tflite $OUT_DIR/labels.txt \\"
+echo "     cp $OUT_DIR/${PREFIX}*.tflite $OUT_DIR/${PREFIX}labels.txt \\"
 echo "        ../android-benchmark-app/app/src/main/assets/models/detector/"
-echo "  2. Matching benchmark_config.json entries: yolo_416_dynamic_cpu/gpu,"
-echo "     yolo_320_dynamic_cpu, yolo_416_int8_cpu/gpu -- these names are"
-echo "     architecture-agnostic, so re-running this script with a different"
-echo "     WEIGHTS value overwrites the same config slots rather than needing"
-echo "     new entries. If you want side-by-side comparison across YOLO"
-echo "     generations, edit OUT_DIR per run and add distinctly-named entries."
+echo "  2. Add matching benchmark_config.json entries with model_path values like"
+echo "     models/detector/${PREFIX}yolo_416_dynamic.tflite -- see README for the"
+echo "     pattern used by the existing (untagged) YOLO26n entries."
