@@ -28,18 +28,28 @@ class MainActivity : AppCompatActivity() {
         runAllButton.setOnClickListener {
             statusView.text = "Running ${suite.models.size} configs + ${suite.pipelines.size} pipelines..."
             thread {
-                val sampleImage = loadSampleImage(this)
-                suite.models.forEach { config ->
-                    runOnUiThread { statusView.text = "Running: ${config.name}" }
-                    runner.runSingle(config, sampleImage)
+                try {
+                    val sampleImage = loadSampleImage(this)
+                    suite.models.forEach { config ->
+                        runOnUiThread { statusView.text = "Running: ${config.name}" }
+                        runner.runSingle(config, sampleImage)
+                    }
+                    suite.pipelines.forEach { pipeline ->
+                        runOnUiThread { statusView.text = "Running pipeline: ${pipeline.name}" }
+                        val detectorConfig = suite.models.first { it.name == pipeline.detectorConfigName }
+                        val ocrConfig = suite.models.first { it.name == pipeline.ocrConfigName }
+                        runner.runPipeline(pipeline, detectorConfig, ocrConfig, sampleImage)
+                    }
+                    runOnUiThread { statusView.text = "Done. Results in getExternalFilesDir/results/" }
+                } catch (e: Exception) {
+                    // Surface the real cause on-screen instead of a silent crash -- e.g.
+                    // a missing assets/sample_panel.jpg (FileNotFoundException) would
+                    // otherwise kill the whole app with no readable message, since an
+                    // uncaught exception on a raw Thread has no default handler here.
+                    val message = "FAILED: ${e.javaClass.simpleName}: ${e.message}"
+                    runOnUiThread { statusView.text = message }
+                    android.util.Log.e("PanelBenchmark", "runAllButton failed", e)
                 }
-                suite.pipelines.forEach { pipeline ->
-                    runOnUiThread { statusView.text = "Running pipeline: ${pipeline.name}" }
-                    val detectorConfig = suite.models.first { it.name == pipeline.detectorConfigName }
-                    val ocrConfig = suite.models.first { it.name == pipeline.ocrConfigName }
-                    runner.runPipeline(pipeline, detectorConfig, ocrConfig, sampleImage)
-                }
-                runOnUiThread { statusView.text = "Done. Results in getExternalFilesDir/results/" }
             }
         }
 
@@ -57,10 +67,16 @@ class MainActivity : AppCompatActivity() {
             val config = suite.models.firstOrNull { it.name == configName }
             if (config != null) {
                 thread {
-                    val sampleImage = loadSampleImage(this)
-                    runner.runSingle(config, sampleImage)
-                    runOnUiThread { statusView.text = "Auto-run complete: $configName" }
-                    finish()
+                    try {
+                        val sampleImage = loadSampleImage(this)
+                        runner.runSingle(config, sampleImage)
+                        runOnUiThread { statusView.text = "Auto-run complete: $configName" }
+                    } catch (e: Exception) {
+                        android.util.Log.e("PanelBenchmark", "Auto-run failed: $configName", e)
+                        runOnUiThread { statusView.text = "FAILED: ${e.javaClass.simpleName}: ${e.message}" }
+                    } finally {
+                        finish()
+                    }
                 }
             }
         } else if (autoRun && pipelineName != null) {
@@ -70,10 +86,16 @@ class MainActivity : AppCompatActivity() {
                 val ocrConfig = suite.models.firstOrNull { it.name == pipeline.ocrConfigName }
                 if (detectorConfig != null && ocrConfig != null) {
                     thread {
-                        val sampleImage = loadSampleImage(this)
-                        runner.runPipeline(pipeline, detectorConfig, ocrConfig, sampleImage)
-                        runOnUiThread { statusView.text = "Pipeline auto-run complete: $pipelineName" }
-                        finish()
+                        try {
+                            val sampleImage = loadSampleImage(this)
+                            runner.runPipeline(pipeline, detectorConfig, ocrConfig, sampleImage)
+                            runOnUiThread { statusView.text = "Pipeline auto-run complete: $pipelineName" }
+                        } catch (e: Exception) {
+                            android.util.Log.e("PanelBenchmark", "Pipeline auto-run failed: $pipelineName", e)
+                            runOnUiThread { statusView.text = "FAILED: ${e.javaClass.simpleName}: ${e.message}" }
+                        } finally {
+                            finish()
+                        }
                     }
                 }
             }
