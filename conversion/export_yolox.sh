@@ -128,6 +128,13 @@ if [ ! -s "${MODEL_NAME}.onnx" ]; then
     exit 1
 fi
 
+# Keep a copy of the raw ONNX file itself alongside the TFLite outputs below,
+# so it can be benchmarked directly through the ONNX Runtime path (runtime:
+# "onnx" in benchmark_config.json) as well as via onnx2tf -> TFLite -- same
+# weights, two runtimes, directly comparable.
+cp "${MODEL_NAME}.onnx" "$OUT_DIR/${MODEL_NAME}.onnx"
+echo "wrote $OUT_DIR/${MODEL_NAME}.onnx (for direct ONNX Runtime benchmarking)"
+
 echo "== Converting ONNX -> SavedModel (float, no quantization) =="
 # Same onnx2tf calibration-file workaround as export_yolo.sh: create the
 # dummy npy onnx2tf's internal sanity check expects, so it skips a fetch
@@ -195,14 +202,15 @@ print('wrote ../$OUT_DIR/${MODEL_NAME}_labels.txt (' + str(len(COCO_CLASSES)) + 
 cd ..
 echo ""
 echo "== Done. Exported: =="
-ls -la "$OUT_DIR/${MODEL_NAME}"*.tflite "$OUT_DIR/${MODEL_NAME}_labels.txt"
+ls -la "$OUT_DIR/${MODEL_NAME}"*.tflite "$OUT_DIR/${MODEL_NAME}.onnx" "$OUT_DIR/${MODEL_NAME}_labels.txt"
 
 echo ""
 echo "Next:"
 echo "  1. Copy into the Android app's assets:"
 echo "     cp $OUT_DIR/${MODEL_NAME}_dynamic.tflite $OUT_DIR/${MODEL_NAME}_int8.tflite \\"
-echo "        $OUT_DIR/${MODEL_NAME}_labels.txt \\"
+echo "        $OUT_DIR/${MODEL_NAME}.onnx $OUT_DIR/${MODEL_NAME}_labels.txt \\"
 echo "        ../android-benchmark-app/app/src/main/assets/models/detector/"
 echo "  2. Add benchmark_config.json entries with model_path values like"
-echo "     models/detector/${MODEL_NAME}_dynamic.tflite, input_width/height 416"
-echo "     (both dimensions -- fixed resolution, see note at top of this script)."
+echo "     models/detector/${MODEL_NAME}_dynamic.tflite (runtime: tflite) and"
+echo "     models/detector/${MODEL_NAME}.onnx (runtime: onnx) -- input_width/height"
+echo "     416 for all of them (fixed resolution, see note at top of this script)."

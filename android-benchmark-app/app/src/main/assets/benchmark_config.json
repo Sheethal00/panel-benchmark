@@ -41,16 +41,16 @@
       "labels_path": "models/detector/labels.txt"
     },
     {
-      "name": "yolo_nas_s_onnx_cpu",
+      "name": "yolox_nano_onnx_cpu",
       "task": "detector",
-      "model_path": "models/detector/yolo_nas_s.onnx",
+      "model_path": "models/detector/yolox_nano.onnx",
       "runtime": "onnx",
       "delegate": "cpu",
-      "input_width": 640,
-      "input_height": 640,
+      "input_width": 416,
+      "input_height": 416,
       "warmup_runs": 10,
       "timed_runs": 50,
-      "labels_path": "models/detector/labels.txt"
+      "labels_path": "models/detector/yolox_nano_labels.txt"
     },
     {
       "name": "yolo26n_416_dynamic_cpu",
@@ -116,6 +116,18 @@
       "labels_path": "models/detector/yolo26n_labels.txt"
     },
     {
+      "name": "yolo26n_416_onnx_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo26n_yolo_416.onnx",
+      "runtime": "onnx",
+      "delegate": "cpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/yolo26n_labels.txt"
+    },
+    {
       "name": "yolo11n_416_dynamic_cpu",
       "task": "detector",
       "model_path": "models/detector/yolo11n_yolo_416_dynamic.tflite",
@@ -172,6 +184,18 @@
       "model_path": "models/detector/yolo11n_yolo_416_int8.tflite",
       "runtime": "tflite",
       "delegate": "gpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/yolo11n_labels.txt"
+    },
+    {
+      "name": "yolo11n_416_onnx_cpu",
+      "task": "detector",
+      "model_path": "models/detector/yolo11n_yolo_416.onnx",
+      "runtime": "onnx",
+      "delegate": "cpu",
       "input_width": 416,
       "input_height": 416,
       "warmup_runs": 10,
@@ -305,6 +329,18 @@
       "labels_path": "models/detector/nanodet_plus_labels.txt"
     },
     {
+      "name": "nanodet_plus_416_onnx_cpu",
+      "task": "detector",
+      "model_path": "models/detector/nanodet_plus_416.onnx",
+      "runtime": "onnx",
+      "delegate": "cpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/nanodet_plus_labels.txt"
+    },
+    {
       "name": "paddleocr_mobile_cpu",
       "task": "ocr",
       "model_path": "models/ocr/paddleocr_mobile.tflite",
@@ -385,6 +421,30 @@
     {
       "name": "nanodet_plus_320_int8_to_mlkit",
       "detector_config": "nanodet_plus_320_int8_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "yolox_nano_onnx_to_mlkit",
+      "detector_config": "yolox_nano_onnx_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "yolo26n_416_onnx_to_mlkit",
+      "detector_config": "yolo26n_416_onnx_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "yolo11n_416_onnx_to_mlkit",
+      "detector_config": "yolo11n_416_onnx_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "nanodet_plus_416_onnx_to_mlkit",
+      "detector_config": "nanodet_plus_416_onnx_cpu",
       "ocr_config": "mlkit_text_recognition",
       "iterations": 5
     }
