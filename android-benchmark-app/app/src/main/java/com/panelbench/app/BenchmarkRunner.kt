@@ -7,6 +7,7 @@ import com.panelbench.app.metrics.BenchmarkResult
 import com.panelbench.app.metrics.MemoryProfiler
 import com.panelbench.app.metrics.PipelineBenchmarkResult
 import com.panelbench.app.metrics.ResultWriter
+import com.panelbench.app.runtimes.MlKitOcrRuntime
 import com.panelbench.app.runtimes.ModelRuntime
 import com.panelbench.app.runtimes.OnnxRuntime
 import com.panelbench.app.runtimes.TFLiteRuntime
@@ -92,7 +93,7 @@ class BenchmarkRunner(private val context: Context) {
     private fun createRuntime(name: String): ModelRuntime = when (name) {
         "tflite" -> TFLiteRuntime()
         "onnx" -> OnnxRuntime()
-        // "mlkit" -> MlKitOcrRuntime()   // add when you wire up the ML Kit baseline
+        "mlkit" -> MlKitOcrRuntime()
         else -> error("Unknown runtime: $name")
     }
 

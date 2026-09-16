@@ -65,6 +65,10 @@ dependencies {
 
     // ML Kit on-device text recognition (baseline OCR to compare against custom models)
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Tasks.await() used by MlKitOcrRuntime to run ML Kit's async API synchronously,
+    // matching this harness's timing model. Usually pulled in transitively by ML Kit,
+    // pinned explicitly here so the build doesn't rely on that transitive resolution.
+    implementation("com.google.android.gms:play-services-tasks:18.2.0")
 
     // JSON for config + result serialization
     implementation("org.json:json:20240303")
