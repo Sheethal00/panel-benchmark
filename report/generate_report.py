@@ -57,6 +57,7 @@ def load_pipeline_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame"
     rows = []
     for f in sorted(results_dir.glob("pipeline_*.json")):
         data = json.loads(f.read_text())
+        error = data.get("error", "")[:200] if data.get("error") else ""
         peak_mb = round(data.get("pss_peak_overall_kb", 0) / 1024, 1)
         after_detector_release_mb = round(data.get("pss_after_detector_release_kb", 0) / 1024, 1)
         after_detector_load_mb = round(data.get("pss_after_detector_load_kb", 0) / 1024, 1)
@@ -72,8 +73,10 @@ def load_pipeline_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame"
             "pss_after_detector_release_mb": after_detector_release_mb,
             "detector_mem_reclaimed_mb": round(after_detector_load_mb - after_detector_release_mb, 1),
             "pss_peak_overall_mb": peak_mb,
-            "within_budget": "PASS" if 0 < peak_mb <= budget_mb else "FAIL",
-            "error": data.get("error", "")[:120] if data.get("error") else "",
+            # A pipeline that errored is never a budget PASS, regardless of what its
+            # (likely baseline-only, pre-failure) peak memory number happens to show.
+            "within_budget": "FAIL" if error else ("PASS" if 0 < peak_mb <= budget_mb else "FAIL"),
+            "error": error,
         })
     return pd.DataFrame(rows)
 
@@ -111,9 +114,11 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
 
     pipeline_section = ""
     if not pipeline_df.empty:
+        pipeline_errors_df = pipeline_df[pipeline_df["error"] != ""]
+        ok_pipeline_df = pipeline_df[pipeline_df["error"] == ""]
         pipeline_section = f"""
   <h2>Sequential pipeline runs (detector &rarr; OCR, one process lifetime)</h2>
-  {pipeline_table_html(pipeline_df.sort_values("pss_peak_overall_mb"))}
+  {pipeline_table_html(ok_pipeline_df.sort_values("pss_peak_overall_mb")) if not ok_pipeline_df.empty else "<p>No successful pipeline runs.</p>"}
   <div class="note">
     <strong>pss_peak_overall_mb</strong> is the number that matters for the 200MB budget --
     it's the true worst-case memory seen across the whole detector-then-OCR cycle, not each
@@ -123,6 +128,8 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     which is worth investigating in the real app even if the pipeline still passes budget.
     {"<br><br><strong>" + str(len(pipeline_over_budget)) + " pipeline(s) exceed the memory budget</strong> when run end-to-end, even if their isolated stage numbers looked fine individually." if not pipeline_over_budget.empty else ""}
   </div>
+  {"<h2 class='errors'>Failed pipelines (crashed / errored mid-run)</h2>" + pipeline_errors_df[["pipeline", "detector", "ocr", "error"]].to_html(index=False, border=0) if not pipeline_errors_df.empty else ""}
+  {"<div class='note'>A failed pipeline's latency/memory columns above (when shown at all) reflect only whatever completed before the error, not a real end-to-end measurement -- treat these as broken, not as data points.</div>" if not pipeline_errors_df.empty else ""}
 """
 
     return f"""<!DOCTYPE html>
