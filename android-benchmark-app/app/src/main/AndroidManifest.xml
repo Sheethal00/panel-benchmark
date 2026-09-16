@@ -13,12 +13,11 @@
         <!--
           MainActivity supports two modes:
           1. Manual: tap "Run Benchmark" in the UI.
-          2. Automated: launched by scripts/run_benchmark_matrix.py via
-             `adb shell am start -n com.panelbench.app/.MainActivity
-                --es config_name <name> --es auto_run true`
-             It runs the single named config from benchmark_config.json,
-             writes results, then finishes automatically -- so a host script
-             can loop over the full model matrix unattended.
+          2. Automated: launched by scripts/run_benchmark_matrix.py via an adb intent
+             with extras config_name=<name> and auto_run=true. It runs the single
+             named config from benchmark_config.json, writes results, then finishes
+             automatically, so a host script can loop over the full model matrix
+             unattended.
         -->
         <activity
             android:name=".MainActivity"
