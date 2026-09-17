@@ -3,6 +3,7 @@ package com.panelbench.app.runtimes
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.graphics.Bitmap
 import com.panelbench.app.ModelConfig
@@ -16,7 +17,6 @@ class OnnxRuntime : ModelRuntime {
     private var delegateNote = "unknown"
     private var inputW = 0
     private var inputH = 0
-    private var inputName = "input"
 
     override fun load(context: Context, config: ModelConfig): RuntimeLoadResult {
         val start = System.nanoTime()
@@ -42,7 +42,6 @@ class OnnxRuntime : ModelRuntime {
         }
 
         session = env!!.createSession(modelFile.absolutePath, sessionOptions)
-        inputName = session!!.inputNames.iterator().next()
 
         val loadTimeMs = (System.nanoTime() - start) / 1_000_000
         return RuntimeLoadResult(loadTimeMs = loadTimeMs, modelSizeBytes = modelFile.length())
@@ -54,14 +53,36 @@ class OnnxRuntime : ModelRuntime {
 
         val resized = Bitmap.createScaledBitmap(input, inputW, inputH, true)
         val floatData = bitmapToCHWFloatArray(resized)
+        val imageShape = longArrayOf(1, 3, inputH.toLong(), inputW.toLong())
 
-        val shape = longArrayOf(1, 3, inputH.toLong(), inputW.toLong())
-        OnnxTensor.createTensor(e, FloatBuffer.wrap(floatData), shape).use { tensor ->
-            s.run(mapOf(inputName to tensor)).use { results ->
+        // Most models here have exactly one input (the image). Some (e.g.
+        // PP-PicoDet, exported with Paddle's NMS baked in) have a second
+        // input like "scale_factor" feeding that post-processing. Detect
+        // this from the session's own input info rather than hardcoding
+        // PicoDet specifically -- any non-4D input gets filled with 1.0 in
+        // every element (correct for scale_factor's "no rescaling" case,
+        // same assumption as TFLiteRuntime.auxInputBuffer()).
+        val inputTensors = mutableMapOf<String, OnnxTensor>()
+        try {
+            for ((name, nodeInfo) in s.inputInfo) {
+                val tensorInfo = nodeInfo.info as? TensorInfo
+                val shape = tensorInfo?.shape
+                inputTensors[name] = if (shape == null || shape.size == 4) {
+                    OnnxTensor.createTensor(e, FloatBuffer.wrap(floatData), imageShape)
+                } else {
+                    val count = shape.fold(1L) { acc, d -> acc * (if (d > 0) d else 1) }.toInt()
+                    val auxData = FloatArray(count) { 1.0f }
+                    OnnxTensor.createTensor(e, FloatBuffer.wrap(auxData), shape)
+                }
+            }
+
+            s.run(inputTensors).use { results ->
                 // Output parsing is model-specific -- bind to the real output name/shape
                 // for the detector/OCR head under test.
                 return InferenceOutput(numDetections = 0)
             }
+        } finally {
+            inputTensors.values.forEach { it.close() }
         }
     }
 

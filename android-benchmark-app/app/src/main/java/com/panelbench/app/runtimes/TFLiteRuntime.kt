@@ -69,22 +69,44 @@ class TFLiteRuntime : ModelRuntime {
         val interp = interpreter ?: error("TFLiteRuntime.load() must be called first")
 
         val resized = Bitmap.createScaledBitmap(input, inputW, inputH, true)
-        val inputBuffer = bitmapToByteBuffer(resized)
 
-        // NOTE: output shape is model-specific. This is a placeholder single-output binding --
-        // for real YOLO-style models you'll typically bind to a [1, N, 4+numClasses] tensor.
-        // Replace with the actual output tensor shape of the candidate model under test.
-        //
-        // YOLO26 specifically ships as NMS-free end-to-end: the exported graph already
-        // includes the final box selection, so decoding here is "parse boxes/scores directly
-        // from the single output tensor" with no separate NMS loop needed -- simpler than
-        // the anchor-decode + NMS post-processing required for YOLOv8/YOLO-NAS-style outputs.
-        val outputShape = interp.getOutputTensor(0).shape()
-        val outputBuffer = ByteBuffer
-            .allocateDirect(outputShape.fold(4) { acc, d -> acc * d })
-            .order(ByteOrder.nativeOrder())
+        // Most models here have exactly one input (the image) and one output.
+        // Some (e.g. PP-PicoDet, exported with Paddle's NMS baked in) have a
+        // second input like "scale_factor" feeding that post-processing. Rather
+        // than hardcode PicoDet specifically, detect input/output count from
+        // the interpreter itself and handle N inputs/outputs generically --
+        // the single-input/output case below is just N=1 of the same path.
+        val inputCount = interp.inputTensorCount
+        val inputs = arrayOfNulls<Any>(inputCount)
+        for (i in 0 until inputCount) {
+            val shape = interp.getInputTensor(i).shape()
+            inputs[i] = if (shape.size == 4) {
+                // The image tensor, e.g. [1, H, W, 3].
+                bitmapToByteBuffer(resized)
+            } else {
+                auxInputBuffer(shape)
+            }
+        }
 
-        interp.run(inputBuffer, outputBuffer)
+        // NOTE: output CONTENTS are still model-specific -- this binds outputs
+        // by shape so inference runs correctly, but decoding detections out of
+        // them (NMS-free single tensor for YOLO26, raw grid + separate NMS for
+        // YOLOX/NanoDet, Paddle's multiclass_nms3-style outputs for PicoDet)
+        // is left as a placeholder per model family, same as before.
+        val outputCount = interp.outputTensorCount
+        val outputMap = HashMap<Int, Any>()
+        for (i in 0 until outputCount) {
+            val shape = interp.getOutputTensor(i).shape()
+            outputMap[i] = ByteBuffer
+                .allocateDirect(shape.fold(4) { acc, d -> acc * d })
+                .order(ByteOrder.nativeOrder())
+        }
+
+        if (inputCount == 1 && outputCount == 1) {
+            interp.run(inputs[0], outputMap[0])
+        } else {
+            interp.runForMultipleInputsOutputs(inputs, outputMap)
+        }
 
         return InferenceOutput(numDetections = 0) // fill in post-processing per model family
     }
@@ -118,6 +140,24 @@ class TFLiteRuntime : ModelRuntime {
             buffer.putFloat(((px shr 8 and 0xFF) / 255.0f))
             buffer.putFloat(((px and 0xFF) / 255.0f))
         }
+        buffer.rewind()
+        return buffer
+    }
+
+    /**
+     * Builds a value for a non-image input tensor on a multi-input model, e.g.
+     * PP-PicoDet's "scale_factor" (shape [1, 2]) that feeds its baked-in NMS
+     * post-processing. ASSUMPTION: every element is filled with 1.0f, meaning
+     * "no rescaling" -- correct for scale_factor specifically, since the
+     * bitmap is already resized to exactly the model's expected input
+     * dimensions before inference. If a future multi-input model needs a
+     * differently-valued auxiliary input, this will need to be extended
+     * (e.g. by inspecting tensor name, not just shape) rather than assumed.
+     */
+    private fun auxInputBuffer(shape: IntArray): ByteBuffer {
+        val count = shape.fold(1) { acc, d -> acc * (if (d > 0) d else 1) }
+        val buffer = ByteBuffer.allocateDirect(4 * count).order(ByteOrder.nativeOrder())
+        repeat(count) { buffer.putFloat(1.0f) }
         buffer.rewind()
         return buffer
     }
