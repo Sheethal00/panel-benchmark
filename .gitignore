@@ -6,18 +6,32 @@ android-benchmark-app/local.properties
 *.iml
 .idea/
 
-# Model binaries (large; track via git-lfs or external storage instead)
-models/**/*.tflite
-models/**/*.onnx
-models/**/*.param
-models/**/*.bin
+# Model binaries in the CONVERSION working directory (large, regenerable via
+# export scripts; leading slash anchors this to the top-level /models/ only
+# -- do NOT let this catch android-benchmark-app/app/src/main/assets/models/,
+# which IS tracked deliberately so the app is buildable out-of-the-box).
+/models/**/*.tflite
+/models/**/*.onnx
+/models/**/*.param
+/models/**/*.bin
 
 # Cloned upstream repos used by conversion scripts (e.g. export_yolox.sh)
 conversion/.yolox-src/
 conversion/.paddledetection-src/
 conversion/.mmdetection-src/
 conversion/.mmdeploy-src/
+conversion/.nanodet-src/
 conversion/rtmdet_work_dir/
+
+# Downloaded checkpoints, archives, and intermediate conversion artifacts --
+# all regenerable by re-running the relevant export_*.sh script.
+conversion/*.pt
+conversion/*.pth
+conversion/*.tar
+conversion/*.onnx
+conversion/*.npy
+conversion/sample.jpg
+conversion/*_infer/
 
 # Virtualenvs created by conversion scripts (e.g. export_picodet.sh creates
 # its own automatically) or by hand per the older scripts' instructions
@@ -27,6 +41,13 @@ conversion/*venv*/
 results/*/
 report/*.html
 report/*.csv
+
+# Stray benchmark result JSONs pulled via adb during manual testing (the
+# structured results/run_*/ directories above are the real output to keep;
+# these are one-off files left wherever a command happened to be run from).
+/*.json
+android-benchmark-app/*.json
+conversion/*.json
 
 # Python
 __pycache__/
