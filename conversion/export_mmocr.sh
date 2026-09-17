@@ -66,7 +66,10 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 echo "== Installing OpenMMLab stack via mim =="
 pip install openmim
 mim install mmengine
-mim install "mmcv>=2.0.0"
+# mmcv range constrained by mmdet (which is itself constrained by mmocr,
+# see below) -- confirmed via a real "MMCV==2.1.0 is used but incompatible"
+# assertion when mmcv resolved past what mmdet 3.1.x actually supports.
+mim install "mmcv>=2.0.0,<2.1.0"
 # mmdet range constrained by MMOCR itself -- confirmed via a real
 # "MMDetection 3.3.0 is incompatible with MMOCR 1.0.1" assertion. An
 # unpinned/latest mmdet resolves past what MMOCR 1.0.1 actually supports.
