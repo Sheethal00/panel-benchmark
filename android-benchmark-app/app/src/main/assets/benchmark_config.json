@@ -116,19 +116,6 @@
       "labels_path": "models/detector/rtmdet_tiny_labels.txt"
     },
     {
-      "name": "rtmdet_tiny_int8_cpu",
-      "task": "detector",
-      "model_path": "models/detector/rtmdet_tiny_int8.tflite",
-      "runtime": "tflite",
-      "delegate": "xnnpack",
-      "input_width": 640,
-      "input_height": 640,
-      "warmup_runs": 10,
-      "timed_runs": 50,
-      "num_threads": 4,
-      "labels_path": "models/detector/rtmdet_tiny_labels.txt"
-    },
-    {
       "name": "yolo26n_416_dynamic_cpu",
       "task": "detector",
       "model_path": "models/detector/yolo26n_yolo_416_dynamic.tflite",
@@ -515,12 +502,6 @@
     {
       "name": "rtmdet_tiny_dynamic_to_mlkit",
       "detector_config": "rtmdet_tiny_dynamic_cpu",
-      "ocr_config": "mlkit_text_recognition",
-      "iterations": 5
-    },
-    {
-      "name": "rtmdet_tiny_int8_to_mlkit",
-      "detector_config": "rtmdet_tiny_int8_cpu",
       "ocr_config": "mlkit_text_recognition",
       "iterations": 5
     }
