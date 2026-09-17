@@ -86,6 +86,17 @@ def load_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame":
                 else -1.0
             ),
             "within_budget": "PASS" if 0 < pss_peak_mb <= budget_mb else "FAIL",
+            # Real-world confirmed finding (3 repeat runs, ML Kit: 360-411MB
+            # consistently): PSS via ActivityManager was shown to be stale/
+            # cached -- byte-for-byte IDENTICAL across three unrelated configs
+            # in one session -- while RSS showed genuine, repeatable movement.
+            # This is a SEPARATE, likely more trustworthy budget verdict based
+            # on absolute RSS peak (not a delta, which is itself noisy early
+            # in a process's life from zygote copy-on-write settling) -- check
+            # this one, not just within_budget, before trusting any PASS.
+            "within_budget_rss": (
+                "PASS" if 0 < data.get("rss_peak_during_inference_kb", -1) / 1024 <= budget_mb else "FAIL"
+            ) if data.get("rss_peak_during_inference_kb", -1) >= 0 else "N/A",
             "device": data.get("device_model"),
             "soc": data.get("soc"),
             "error": data.get("error", "")[:120] if data.get("error") else "",
@@ -136,6 +147,7 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     ocr_df = df[df["task"] == "ocr"].sort_values("latency_p50_ms")
     errors_df = df[df["error"] != ""]
     over_budget_df = df[(df["within_budget"] == "FAIL") & (df["error"] == "")]
+    over_budget_rss_df = df[(df["within_budget_rss"] == "FAIL") & (df["error"] == "")]
 
     pipeline_over_budget = pipeline_df[
         (pipeline_df["within_budget"] == "FAIL") & (pipeline_df["error"] == "")
@@ -144,12 +156,15 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     def table_html(d):
         cols = ["config", "runtime", "requested_delegate", "actual_delegate",
                 "model_size_mb", "load_time_ms", "latency_p50_ms", "latency_p90_ms",
-                "latency_p99_ms", "pss_peak_mb", "pss_delta_mb", "load_delta_mb",
-                "rss_load_delta_mb", "within_budget"]
+                "latency_p99_ms", "rss_peak_mb", "within_budget_rss", "pss_peak_mb", "within_budget"]
         styled = d[cols].copy()
         return styled.to_html(index=False, border=0, classes="results-table", escape=False,
-                               formatters={"within_budget": lambda v:
-                                   f'<span class="{"pass" if v == "PASS" else "fail"}">{v}</span>'})
+                               formatters={
+                                   "within_budget": lambda v:
+                                       f'<span class="{"pass" if v == "PASS" else "fail"}">{v}</span>',
+                                   "within_budget_rss": lambda v:
+                                       f'<span class="{"pass" if v == "PASS" else "fail"}">{v}</span>',
+                               })
 
     def pipeline_table_html(d):
         cols = ["pipeline", "detector", "ocr", "iterations", "detector_p50_ms", "ocr_p50_ms",
@@ -177,6 +192,13 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     a small or negative value here means native/delegate memory isn't being freed promptly,
     which is worth investigating in the real app even if the pipeline still passes budget.
     {"<br><br><strong>" + str(len(pipeline_over_budget)) + " pipeline(s) exceed the memory budget</strong> when run end-to-end, even if their isolated stage numbers looked fine individually." if not pipeline_over_budget.empty else ""}
+    <br><br>
+    <strong>CAVEAT:</strong> the pipeline numbers above are PSS-only. RSS diagnostics
+    (added after this section was originally built) confirmed PSS via ActivityManager can be
+    stale/cached -- identical across unrelated configs in one session. RSS wasn't yet threaded
+    through the pipeline path, only the isolated-config path, so treat every PASS/budget number
+    in this pipeline table with the same skepticism the isolated tables' within_budget_rss
+    column exists to address, until RSS is added here too.
   </div>
   {"<h2 class='errors'>Failed pipelines (crashed / errored mid-run)</h2>" + pipeline_errors_df[["pipeline", "detector", "ocr", "error"]].to_html(index=False, border=0) if not pipeline_errors_df.empty else ""}
   {"<div class='note'>A failed pipeline's latency/memory columns above (when shown at all) reflect only whatever completed before the error, not a real end-to-end measurement -- treat these as broken, not as data points.</div>" if not pipeline_errors_df.empty else ""}
@@ -202,15 +224,21 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
   .fail {{ color: #b00020; font-weight: 600; }}
   .budget-banner {{ background: #fff8e1; border: 1px solid #f0d878; padding: 10px 14px;
                      border-radius: 6px; margin-bottom: 20px; font-size: 14px; }}
+  .budget-banner-critical {{ background: #fde8e8; border: 1px solid #e57373; padding: 10px 14px;
+                     border-radius: 6px; margin-bottom: 20px; font-size: 14px; }}
 </style>
 </head>
 <body>
   <h1>Panel Benchmark Report</h1>
   <div class="meta">Device: {device_label} &nbsp;|&nbsp; SoC: {soc_label} &nbsp;|&nbsp; {len(df)} isolated configs, {len(pipeline_df)} pipelines</div>
-  <div class="budget-banner">
+  <div class="{"budget-banner-critical" if not over_budget_rss_df.empty else "budget-banner"}">
     Target device profile: Android 9.0+, Snapdragon 845-era (2018+), 3GB RAM, CPU/GPU only.
-    Memory budget: <strong>{budget_mb:.0f} MB</strong> peak PSS.
-    {"<strong>" + str(len(over_budget_df)) + " isolated config(s) exceed this budget</strong> -- see FAIL rows below." if not over_budget_df.empty else "All isolated configs are within budget."}
+    Memory budget: <strong>{budget_mb:.0f} MB</strong>.
+    <strong>within_budget</strong> (PSS via ActivityManager) --
+    {"<strong>" + str(len(over_budget_df)) + " config(s) exceed this</strong>." if not over_budget_df.empty else "all configs within budget."}
+    <strong>within_budget_rss</strong> (RSS, confirmed via repeat runs to be more reliable --
+    PSS was found identical across unrelated configs in one session, i.e. stale/cached) --
+    {"<strong>" + str(len(over_budget_rss_df)) + " config(s) exceed this</strong>, including some that PASS on the PSS check -- trust this verdict over within_budget." if not over_budget_rss_df.empty else "all configs within budget."}
   </div>
 
   <h2>Detector models (isolated)</h2>
