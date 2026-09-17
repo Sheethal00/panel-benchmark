@@ -87,6 +87,21 @@ class TFLiteRuntime : ModelRuntime {
         // meaning positional index in the Java API doesn't reliably match the
         // model's actual native input order for a signature-def model.
         // Feeding by name via runSignature() sidesteps that ambiguity entirely.
+        // TEMPORARY diagnostic -- confirming whether signatureKeys is actually
+        // populated on the Android TFLite runtime the same way Python's
+        // desktop TensorFlow showed it to be (it reported the signature
+        // correctly when the .tflite file was inspected directly). If this
+        // logs isNotEmpty=false here, the code is silently falling into the
+        // single-input fallback below, which assumes tensor index 0 is the
+        // (only) input -- but index 0 is actually scale_factor for this
+        // model, confirmed twice now, which would explain the persistent
+        // "Cannot copy ... 8 bytes from a Java Buffer with 1228800 bytes"
+        // error appearing identically regardless of which fix was tried.
+        android.util.Log.d(
+            "PanelBenchmarkDebug",
+            "signatureKeys=${interp.signatureKeys.toList()} isNotEmpty=${interp.signatureKeys.isNotEmpty()}"
+        )
+
         if (interp.signatureKeys.isNotEmpty()) {
             return runInferenceViaSignature(interp, resized)
         }
@@ -114,6 +129,15 @@ class TFLiteRuntime : ModelRuntime {
         }
         val imageInputName = elementCounts.maxByOrNull { it.value }?.key
             ?: error("Model has a signature but no inputs")
+
+        // TEMPORARY diagnostic -- confirms this branch actually ran and shows
+        // exactly what it decided, so a failure here is distinguishable from
+        // the fallback path silently running instead.
+        android.util.Log.d(
+            "PanelBenchmarkDebug",
+            "runInferenceViaSignature: signatureKey=$signatureKey inputNames=${inputNames.toList()} " +
+                "elementCounts=$elementCounts imageInputName=$imageInputName"
+        )
 
         val inputMap = inputNames.associateWith { name ->
             if (name == imageInputName) {
