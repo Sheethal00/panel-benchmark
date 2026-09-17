@@ -83,6 +83,13 @@ mim install mmengine
 # mmcv range constrained by mmdet (which is itself constrained by mmocr,
 # see below) -- confirmed via a real "MMCV==2.1.0 is used but incompatible"
 # assertion when mmcv resolved past what mmdet 3.1.x actually supports.
+# MMCV_WITH_OPS=1: mmcv 2.0.x predates official support for recent torch
+# releases, so no matching prebuilt wheel exists here and it builds from
+# source -- without this flag, that source build silently skips compiling
+# the C++ ops extension, confirmed via a real "No module named 'mmcv._ext'"
+# failure the first time this ran (the rest of the package installed fine,
+# just missing the compiled ops NMS/RoIAlign/etc. depend on).
+export MMCV_WITH_OPS=1
 mim install "mmcv>=2.0.0,<2.1.0"
 # mmdet range constrained by MMOCR itself -- confirmed via a real
 # "MMDetection 3.3.0 is incompatible with MMOCR 1.0.1" assertion. An
