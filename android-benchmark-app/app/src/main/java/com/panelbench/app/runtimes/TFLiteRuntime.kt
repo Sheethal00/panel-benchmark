@@ -72,19 +72,25 @@ class TFLiteRuntime : ModelRuntime {
 
         // Most models here have exactly one input (the image) and one output.
         // Some (e.g. PP-PicoDet, exported with Paddle's NMS baked in) have a
-        // second input like "scale_factor" feeding that post-processing. Rather
-        // than hardcode PicoDet specifically, detect input/output count from
-        // the interpreter itself and handle N inputs/outputs generically --
-        // the single-input/output case below is just N=1 of the same path.
+        // second input like "scale_factor" feeding that post-processing.
+        // Identify the image input by ELEMENT COUNT (it's always far larger
+        // than any auxiliary input), not by shape rank -- onnx2tf can report
+        // an auxiliary tensor's shape in a form that isn't cleanly 2D, which
+        // made a rank-based check misidentify it and try to copy the full
+        // image buffer into a tiny scale_factor slot (confirmed by a real
+        // "Cannot copy ... 8 bytes from a Java Buffer with 1228800 bytes" error).
         val inputCount = interp.inputTensorCount
+        val elementCounts = IntArray(inputCount) { i ->
+            interp.getInputTensor(i).shape().fold(1) { acc, d -> acc * (if (d > 0) d else 1) }
+        }
+        val imageInputIndex = elementCounts.indices.maxByOrNull { elementCounts[it] } ?: 0
+
         val inputs = arrayOfNulls<Any>(inputCount)
         for (i in 0 until inputCount) {
-            val shape = interp.getInputTensor(i).shape()
-            inputs[i] = if (shape.size == 4) {
-                // The image tensor, e.g. [1, H, W, 3].
+            inputs[i] = if (i == imageInputIndex) {
                 bitmapToByteBuffer(resized)
             } else {
-                auxInputBuffer(shape)
+                auxInputBuffer(interp.getInputTensor(i).shape())
             }
         }
 

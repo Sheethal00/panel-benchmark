@@ -54,25 +54,44 @@ class OnnxRuntime : ModelRuntime {
         val resized = Bitmap.createScaledBitmap(input, inputW, inputH, true)
         val floatData = bitmapToCHWFloatArray(resized)
         val imageShape = longArrayOf(1, 3, inputH.toLong(), inputW.toLong())
+        val imageElementCount = floatData.size
 
         // Most models here have exactly one input (the image). Some (e.g.
         // PP-PicoDet, exported with Paddle's NMS baked in) have a second
-        // input like "scale_factor" feeding that post-processing. Detect
-        // this from the session's own input info rather than hardcoding
-        // PicoDet specifically -- any non-4D input gets filled with 1.0 in
-        // every element (correct for scale_factor's "no rescaling" case,
-        // same assumption as TFLiteRuntime.auxInputBuffer()).
+        // input like "scale_factor" feeding that post-processing.
+        //
+        // Iterate session.inputNames (the ground truth for required feeds)
+        // rather than session.inputInfo -- inputInfo was observed to NOT
+        // reliably include "scale_factor" for this export even though the
+        // graph requires it at run time (confirmed by a real
+        // "Missing Input: scale_factor" error when only inputInfo's entries
+        // were used to build the feed map). For each name, prefer real shape
+        // info when available (largest element count = the image, same
+        // reasoning as TFLiteRuntime); if shape info is unavailable for a
+        // name, fall back to name-based detection ("scale" in the name) --
+        // the only currently-known case needing this fallback is exactly
+        // PicoDet's scale_factor, shape [1, 2], value 1.0 ("no rescaling").
         val inputTensors = mutableMapOf<String, OnnxTensor>()
         try {
-            for ((name, nodeInfo) in s.inputInfo) {
-                val tensorInfo = nodeInfo.info as? TensorInfo
-                val shape = tensorInfo?.shape
-                inputTensors[name] = if (shape == null || shape.size == 4) {
-                    OnnxTensor.createTensor(e, FloatBuffer.wrap(floatData), imageShape)
-                } else {
-                    val count = shape.fold(1L) { acc, d -> acc * (if (d > 0) d else 1) }.toInt()
-                    val auxData = FloatArray(count) { 1.0f }
-                    OnnxTensor.createTensor(e, FloatBuffer.wrap(auxData), shape)
+            if (s.inputNames.size == 1) {
+                val name = s.inputNames.first()
+                inputTensors[name] = OnnxTensor.createTensor(e, FloatBuffer.wrap(floatData), imageShape)
+            } else {
+                for (name in s.inputNames) {
+                    val tensorInfo = (s.inputInfo[name]?.info) as? TensorInfo
+                    val shape = tensorInfo?.shape
+                    val elementCount = shape?.fold(1L) { acc, d -> acc * (if (d > 0) d else 1) }?.toInt()
+
+                    inputTensors[name] = when {
+                        elementCount != null && elementCount >= imageElementCount ->
+                            OnnxTensor.createTensor(e, FloatBuffer.wrap(floatData), imageShape)
+                        elementCount != null ->
+                            OnnxTensor.createTensor(e, FloatBuffer.wrap(FloatArray(elementCount) { 1.0f }), shape!!)
+                        name.contains("scale", ignoreCase = true) ->
+                            OnnxTensor.createTensor(e, FloatBuffer.wrap(floatArrayOf(1.0f, 1.0f)), longArrayOf(1, 2))
+                        else ->
+                            OnnxTensor.createTensor(e, FloatBuffer.wrap(floatData), imageShape)
+                    }
                 }
             }
 
