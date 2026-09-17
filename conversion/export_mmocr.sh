@@ -77,7 +77,22 @@ echo "== Cloning MMDeploy (for the export tool + deployment configs) if not alre
 if [ ! -d "$MMDEPLOY_SRC_DIR" ]; then
     git clone --depth 1 https://github.com/open-mmlab/mmdeploy.git "$MMDEPLOY_SRC_DIR"
 fi
-pip install -e "$MMDEPLOY_SRC_DIR"
+# MMDeploy's own setup requires setuptools<81, but the editable install below
+# (pip install -e) needs setuptools>=64 for PEP 660's build_editable hook --
+# pinning "<81" alone let pip pick something older than that and hit a real
+# "build backend is missing the 'build_editable' hook" failure. Narrow range
+# satisfies both constraints.
+pip install "setuptools>=64,<81" wheel
+# --no-build-isolation: pip's DEFAULT build isolation creates a SEPARATE
+# temporary environment for the actual build step, with its own freshly
+# resolved setuptools -- completely ignoring the pin above, confirmed via a
+# real "ModuleNotFoundError: No module named 'pkg_resources'" failure
+# inside that isolated build env (a newer setuptools that doesn't bundle
+# pkg_resources by default). Disabling isolation forces the build to use
+# our already-correctly-pinned venv setuptools instead. Requires every
+# build-time dependency to already be installed in this venv (torch, mmcv,
+# mmdet, mmocr, etc. above already cover MMDeploy's requirements).
+pip install --no-build-isolation -e "$MMDEPLOY_SRC_DIR"
 
 # PyTorch 2.6+ weights_only default rejects OpenMMLab checkpoints' pickled
 # objects (e.g. HistoryBuffer) with "Weights only load failed" -- these
