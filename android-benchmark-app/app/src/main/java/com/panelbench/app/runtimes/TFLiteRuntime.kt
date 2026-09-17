@@ -72,45 +72,22 @@ class TFLiteRuntime : ModelRuntime {
 
         // Most models here have exactly one input (the image) and one output,
         // handled below via the plain positional run(). Some (e.g. PP-PicoDet,
-        // exported with Paddle's NMS baked in) have a second input like
-        // "scale_factor" feeding that post-processing.
-        //
-        // For those, use TFLite's SIGNATURE-based API (runSignature, keyed by
-        // name) rather than positional runForMultipleInputsOutputs(). This
-        // model's tensors are named "serving_default_scale_factor:0" /
-        // "serving_default_image:0" -- confirming an embedded signature def
-        // (from the -osd export flag) -- and a real, reproducible bug was
-        // confirmed here: even after correctly identifying which POSITIONAL
-        // index was the image tensor (verified via diagnostic logging: index 1
-        // = image, 307200 elements; index 0 = scale_factor, 2 elements), the
-        // native runForMultipleInputsOutputs() call still mismatched them,
-        // meaning positional index in the Java API doesn't reliably match the
-        // model's actual native input order for a signature-def model.
-        // Feeding by name via runSignature() sidesteps that ambiguity entirely.
-        // TEMPORARY diagnostic -- confirming whether signatureKeys is actually
-        // populated on the Android TFLite runtime the same way Python's
-        // desktop TensorFlow showed it to be (it reported the signature
-        // correctly when the .tflite file was inspected directly). If this
-        // logs isNotEmpty=false here, the code is silently falling into the
-        // single-input fallback below, which assumes tensor index 0 is the
-        // (only) input -- but index 0 is actually scale_factor for this
-        // model, confirmed twice now, which would explain the persistent
-        // "Cannot copy ... 8 bytes from a Java Buffer with 1228800 bytes"
-        // error appearing identically regardless of which fix was tried.
-        android.util.Log.d(
-            "PanelBenchmarkDebug",
-            "signatureKeys=${interp.signatureKeys.toList()} isNotEmpty=${interp.signatureKeys.isNotEmpty()}"
-        )
-
+        // NanoDet-based, or RTMDet, all exported with NMS baked in) have a
+        // second input like "scale_factor", and/or more than one output
+        // (e.g. boxes + labels/count). For those, use TFLite's SIGNATURE-based
+        // API (runSignature, keyed by name) rather than positional
+        // runForMultipleInputsOutputs() -- a real, confirmed bug: positional
+        // index in the Java API does not reliably match a signature-def
+        // model's actual native tensor order (verified directly: diagnostic
+        // logging showed the correct index chosen, yet the positional call
+        // still mismatched buffers). Feeding/reading by name sidesteps that.
         if (interp.signatureKeys.isNotEmpty()) {
             return runInferenceViaSignature(interp, resized)
         }
 
         val inputBuffer = bitmapToByteBuffer(resized)
-        val outputShape = interp.getOutputTensor(0).shape()
-        val outputBuffer = ByteBuffer
-            .allocateDirect(outputShape.fold(4) { acc, d -> acc * d })
-            .order(ByteOrder.nativeOrder())
+        val outputTensor = interp.getOutputTensor(0)
+        val outputBuffer = ByteBuffer.allocateDirect(outputTensor.numBytes()).order(ByteOrder.nativeOrder())
         interp.run(inputBuffer, outputBuffer)
         return InferenceOutput(numDetections = 0) // fill in post-processing per model family
     }
@@ -130,15 +107,6 @@ class TFLiteRuntime : ModelRuntime {
         val imageInputName = elementCounts.maxByOrNull { it.value }?.key
             ?: error("Model has a signature but no inputs")
 
-        // TEMPORARY diagnostic -- confirms this branch actually ran and shows
-        // exactly what it decided, so a failure here is distinguishable from
-        // the fallback path silently running instead.
-        android.util.Log.d(
-            "PanelBenchmarkDebug",
-            "runInferenceViaSignature: signatureKey=$signatureKey inputNames=${inputNames.toList()} " +
-                "elementCounts=$elementCounts imageInputName=$imageInputName"
-        )
-
         val inputMap = inputNames.associateWith { name ->
             if (name == imageInputName) {
                 bitmapToByteBuffer(resized)
@@ -148,12 +116,19 @@ class TFLiteRuntime : ModelRuntime {
         }
 
         // NOTE: output CONTENTS are still model-specific -- this binds outputs
-        // by shape so inference runs correctly, but decoding detections out of
-        // them (Paddle's multiclass_nms3-style outputs for PicoDet, etc.) is
-        // left as a placeholder per model family, same as for single-input models.
+        // by the tensor's own reported byte size (not shape * assumed 4 bytes/
+        // element -- a real bug: RTMDet's export has at least one output that
+        // isn't float32, e.g. an int64 detection-count/label tensor, which
+        // needs 8 bytes/element, not 4; assuming float32 undersized that
+        // buffer and threw "Cannot copy ... 40 bytes to a Java Buffer with
+        // 20 bytes"). numBytes() reflects the tensor's real dtype correctly
+        // regardless of what it turns out to be. Decoding detections out of
+        // these buffers (Paddle's multiclass_nms3-style outputs for PicoDet,
+        // RTMDet's NMS outputs, etc.) is still left as a placeholder per
+        // model family, same as for single-input/output models.
         val outputMap = outputNames.associateWith { name ->
-            val shape = interp.getOutputTensorFromSignature(name, signatureKey).shape()
-            ByteBuffer.allocateDirect(shape.fold(4) { acc, d -> acc * d }).order(ByteOrder.nativeOrder())
+            val tensor = interp.getOutputTensorFromSignature(name, signatureKey)
+            ByteBuffer.allocateDirect(tensor.numBytes()).order(ByteOrder.nativeOrder())
         }
 
         interp.runSignature(inputMap, outputMap, signatureKey)
