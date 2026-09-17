@@ -59,6 +59,20 @@ fi
 echo "== Activating $VENV_DIR =="
 source "$VENV_DIR/bin/activate"
 
+# PIP_CONSTRAINT applies to pip's ISOLATED BUILD ENVIRONMENTS too, unlike a
+# plain `pip install "setuptools<81"` into this venv -- which does NOT
+# affect them at all. Confirmed the hard way: multiple different packages
+# needing to build from source (mmdeploy via -e, then mmcv when no
+# matching prebuilt wheel exists for the installed torch version) each hit
+# their own fresh "ModuleNotFoundError: No module named 'pkg_resources'"
+# inside their own independently-resolved isolated setuptools, despite
+# this venv's own setuptools being correctly pinned. This constraint file
+# is the actual general fix, not another one-off per-package pin.
+cat > /tmp/panel_mmocr_pip_constraints.txt << 'CONSTRAINTS'
+setuptools>=64,<81
+CONSTRAINTS
+export PIP_CONSTRAINT=/tmp/panel_mmocr_pip_constraints.txt
+
 echo "== Installing PyTorch (CPU) =="
 # torch + torchvision installed TOGETHER from the same index -- see header note.
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
