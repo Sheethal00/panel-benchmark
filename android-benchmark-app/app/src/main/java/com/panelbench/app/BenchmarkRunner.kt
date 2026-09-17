@@ -41,6 +41,7 @@ class BenchmarkRunner(private val context: Context) {
 
             val latencies = mutableListOf<Double>()
             var peakPssKb = afterLoad.pssKb
+            var peakRssKb = afterLoad.rssKb
 
             repeat(config.timedRuns) {
                 val t0 = System.nanoTime()
@@ -51,6 +52,7 @@ class BenchmarkRunner(private val context: Context) {
                 if (it % 10 == 0) {
                     val sample = MemoryProfiler.sample(context)
                     if (sample.pssKb > peakPssKb) peakPssKb = sample.pssKb
+                    if (sample.rssKb > peakRssKb) peakRssKb = sample.rssKb
                 }
             }
 
@@ -65,7 +67,10 @@ class BenchmarkRunner(private val context: Context) {
                 latenciesMs = latencies,
                 pssBaselineKb = baseline.pssKb,
                 pssAfterLoadKb = afterLoad.pssKb,
-                pssPeakDuringInferenceKb = peakPssKb
+                pssPeakDuringInferenceKb = peakPssKb,
+                rssBaselineKb = baseline.rssKb,
+                rssAfterLoadKb = afterLoad.rssKb,
+                rssPeakDuringInferenceKb = peakRssKb
             )
         } catch (e: Exception) {
             BenchmarkResult(
@@ -80,6 +85,9 @@ class BenchmarkRunner(private val context: Context) {
                 pssBaselineKb = baseline.pssKb,
                 pssAfterLoadKb = -1,
                 pssPeakDuringInferenceKb = -1,
+                rssBaselineKb = baseline.rssKb,
+                rssAfterLoadKb = -1,
+                rssPeakDuringInferenceKb = -1,
                 error = e.stackTraceToString()
             )
         } finally {

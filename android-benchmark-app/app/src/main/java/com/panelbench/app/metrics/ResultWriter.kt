@@ -19,6 +19,18 @@ data class BenchmarkResult(
     val pssBaselineKb: Int,
     val pssAfterLoadKb: Int,
     val pssPeakDuringInferenceKb: Int,
+    // RSS (from /proc/self/status) alongside PSS as a diagnostic, since PSS
+    // via ActivityManager.getProcessMemoryInfo() showed baseline/after-load/
+    // peak as byte-for-byte IDENTICAL in a real run even with multi-sample
+    // delays added -- consistent with that cross-process Binder IPC query
+    // being throttled/cached at the OS level on modern Android, rather than
+    // genuinely reflecting no memory change. RSS is a same-process file read
+    // (no IPC), so it shouldn't be subject to the same throttling -- compare
+    // rss_*_kb against pss_*_kb in the next report to confirm before treating
+    // RSS as the primary metric.
+    val rssBaselineKb: Long = -1,
+    val rssAfterLoadKb: Long = -1,
+    val rssPeakDuringInferenceKb: Long = -1,
     val deviceModel: String = Build.MODEL,
     val androidSdkInt: Int = Build.VERSION.SDK_INT,
     val soc: String = Build.HARDWARE,
@@ -47,6 +59,9 @@ data class BenchmarkResult(
         o.put("pss_baseline_kb", pssBaselineKb)
         o.put("pss_after_load_kb", pssAfterLoadKb)
         o.put("pss_peak_during_inference_kb", pssPeakDuringInferenceKb)
+        o.put("rss_baseline_kb", rssBaselineKb)
+        o.put("rss_after_load_kb", rssAfterLoadKb)
+        o.put("rss_peak_during_inference_kb", rssPeakDuringInferenceKb)
         o.put("device_model", deviceModel)
         o.put("android_sdk_int", androidSdkInt)
         o.put("soc", soc)

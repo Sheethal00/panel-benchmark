@@ -58,7 +58,33 @@ def load_results(results_dir: Path, budget_mb: float) -> "pd.DataFrame":
             # correlates with model_size_mb far more directly than pss_delta_mb does
             # for small models (1-10MB), where peak-during-inference barely differs
             # from after-load and both can round to ~0 against a large shared baseline.
-            "load_delta_mb": round(round(data.get("pss_after_load_kb", 0) / 1024, 1) - pss_baseline_mb, 1) if pss_baseline_mb > 0 else -1.0,
+            # load_delta_mb: guard against the -1 sentinel Kotlin writes for
+            # pss_after_load_kb when a config errors before/during load() --
+            # without this check, a failed config's -1 got treated as ~0.0 MB
+            # and subtracted from baseline, producing a large nonsensical
+            # negative number instead of the proper "N/A" -1.0 sentinel every
+            # other column already uses for missing data.
+            "load_delta_mb": (
+                round(round(data.get("pss_after_load_kb", 0) / 1024, 1) - pss_baseline_mb, 1)
+                if pss_baseline_mb > 0 and data.get("pss_after_load_kb", -1) >= 0
+                else -1.0
+            ),
+            # RSS (from /proc/self/status) alongside PSS as a diagnostic --
+            # PSS via ActivityManager showed baseline/after-load/peak as
+            # byte-for-byte identical in a real run even with multi-sample
+            # delays added, consistent with that cross-process Binder IPC
+            # query being throttled/cached at the OS level. RSS is a
+            # same-process file read, not subject to the same throttling --
+            # compare rss_load_delta_mb against load_delta_mb to see whether
+            # RSS actually shows real signal where PSS didn't.
+            "rss_baseline_mb": round(data.get("rss_baseline_kb", -1) / 1024, 1) if data.get("rss_baseline_kb", -1) >= 0 else -1.0,
+            "rss_after_load_mb": round(data.get("rss_after_load_kb", -1) / 1024, 1) if data.get("rss_after_load_kb", -1) >= 0 else -1.0,
+            "rss_peak_mb": round(data.get("rss_peak_during_inference_kb", -1) / 1024, 1) if data.get("rss_peak_during_inference_kb", -1) >= 0 else -1.0,
+            "rss_load_delta_mb": (
+                round(data.get("rss_after_load_kb", 0) / 1024 - data.get("rss_baseline_kb", 0) / 1024, 1)
+                if data.get("rss_baseline_kb", -1) >= 0 and data.get("rss_after_load_kb", -1) >= 0
+                else -1.0
+            ),
             "within_budget": "PASS" if 0 < pss_peak_mb <= budget_mb else "FAIL",
             "device": data.get("device_model"),
             "soc": data.get("soc"),
@@ -118,7 +144,8 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     def table_html(d):
         cols = ["config", "runtime", "requested_delegate", "actual_delegate",
                 "model_size_mb", "load_time_ms", "latency_p50_ms", "latency_p90_ms",
-                "latency_p99_ms", "pss_peak_mb", "pss_delta_mb", "load_delta_mb", "within_budget"]
+                "latency_p99_ms", "pss_peak_mb", "pss_delta_mb", "load_delta_mb",
+                "rss_load_delta_mb", "within_budget"]
         styled = d[cols].copy()
         return styled.to_html(index=False, border=0, classes="results-table", escape=False,
                                formatters={"within_budget": lambda v:
@@ -203,6 +230,14 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     Your real production app will ship only the one winning runtime, so its actual baseline
     will be far lower than this harness's -- pss_peak_mb here is a conservative
     (over-)estimate for that reason, not a final number.
+    <br><br>
+    <strong>rss_load_delta_mb</strong> is an alternate load-time delta computed from RSS
+    (/proc/self/status) instead of PSS -- included because PSS's cross-process
+    ActivityManager query was observed showing baseline/after-load/peak as identical even
+    with multi-sample delays added, suggesting that query may be throttled/cached at the OS
+    level rather than genuinely reflecting no change. If rss_load_delta_mb shows real,
+    model-size-correlated values where load_delta_mb doesn't, that confirms the PSS query
+    itself is the limitation, not the models' actual memory behavior.
   </div>
 
   <h2>OCR models (isolated)</h2>
