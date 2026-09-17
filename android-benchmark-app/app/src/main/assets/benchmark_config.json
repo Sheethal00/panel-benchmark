@@ -53,6 +53,70 @@
       "labels_path": "models/detector/yolox_nano_labels.txt"
     },
     {
+      "name": "picodet_s_320_dynamic_cpu",
+      "task": "detector",
+      "model_path": "models/detector/picodet_s_320_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 320,
+      "input_height": 320,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/picodet_s_labels.txt"
+    },
+    {
+      "name": "picodet_s_320_int8_cpu",
+      "task": "detector",
+      "model_path": "models/detector/picodet_s_320_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 320,
+      "input_height": 320,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/picodet_s_labels.txt"
+    },
+    {
+      "name": "picodet_s_416_dynamic_cpu",
+      "task": "detector",
+      "model_path": "models/detector/picodet_s_416_dynamic.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/picodet_s_labels.txt"
+    },
+    {
+      "name": "picodet_s_416_int8_cpu",
+      "task": "detector",
+      "model_path": "models/detector/picodet_s_416_int8.tflite",
+      "runtime": "tflite",
+      "delegate": "xnnpack",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "num_threads": 4,
+      "labels_path": "models/detector/picodet_s_labels.txt"
+    },
+    {
+      "name": "picodet_s_416_onnx_cpu",
+      "task": "detector",
+      "model_path": "models/detector/picodet_s_416.onnx",
+      "runtime": "onnx",
+      "delegate": "cpu",
+      "input_width": 416,
+      "input_height": 416,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/detector/picodet_s_labels.txt"
+    },
+    {
       "name": "yolo26n_416_dynamic_cpu",
       "task": "detector",
       "model_path": "models/detector/yolo26n_yolo_416_dynamic.tflite",
@@ -421,6 +485,18 @@
     {
       "name": "nanodet_plus_416_onnx_to_mlkit",
       "detector_config": "nanodet_plus_416_onnx_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "picodet_s_320_int8_to_mlkit",
+      "detector_config": "picodet_s_320_int8_cpu",
+      "ocr_config": "mlkit_text_recognition",
+      "iterations": 5
+    },
+    {
+      "name": "picodet_s_416_onnx_to_mlkit",
+      "detector_config": "picodet_s_416_onnx_cpu",
       "ocr_config": "mlkit_text_recognition",
       "iterations": 5
     }

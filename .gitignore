@@ -12,6 +12,10 @@ models/**/*.onnx
 models/**/*.param
 models/**/*.bin
 
+# Cloned upstream repos used by conversion scripts (e.g. export_yolox.sh)
+conversion/.yolox-src/
+conversion/.paddledetection-src/
+
 # Runtime outputs
 results/*/
 report/*.html
