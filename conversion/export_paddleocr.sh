@@ -3,10 +3,10 @@ set -e
 
 # ---------------------------------------------------------------------------
 # Exports PaddleOCR's English mobile models (PaddlePaddle/PaddleOCR,
-# Apache-2.0) to TFLite + ONNX: detection (en_PP-OCRv3_det, finds text
-# regions) and recognition (en_PP-OCRv4_rec, reads characters from a cropped
-# text line). Real OCR is two models chained together, not one -- unlike
-# ML Kit, which bundles both internally as a black box.
+# Apache-2.0) to ONNX: detection (en_PP-OCRv3_det, finds text regions) and
+# recognition (en_PP-OCRv4_rec, reads characters from a cropped text line).
+# Real OCR is two models chained together, not one -- unlike ML Kit, which
+# bundles both internally as a black box.
 #
 # Usage:
 #   ./export_paddleocr.sh
@@ -19,6 +19,31 @@ set -e
 # zoo distributes these as ALREADY-EXPORTED inference tars (inference.pdmodel
 # + inference.pdiparams), so there's no export_model.py step and no
 # PaddleOCR repo clone needed -- straight from download to paddle2onnx.
+#
+# ONNX ONLY -- NO TFLITE OUTPUT. This was a real, multi-round debugging
+# effort, not an oversight:
+# - Detection's dynamic-range TFLite hit a genuine TFLite kernel gap
+#   (TRANSPOSE_CONV doesn't support mixed int8-weight/float32-activation).
+# - Switching to onnx2tf's own plain float32.tflite output didn't help --
+#   confirmed via direct tensor inspection that the file had zero int8
+#   tensors, yet the app still failed identically, meaning the issue wasn't
+#   in the file at all.
+# - Recognition hit a SEPARATE "FULLY_CONNECTED version 12" op mismatch
+#   between the Python tensorflow converter and the app's TFLite AAR, even
+#   at matching version tags on both sides.
+# - Bumping the app's TFLite AAR past 2.16.1 to chase op compatibility
+#   triggered a real build-breaking duplicate-class conflict: Maven
+#   relocates org.tensorflow:tensorflow-lite -> com.google.ai.edge.litert
+#   at 2.17.0, colliding with ML Kit's own internally-bundled
+#   tensorflow-lite-api:2.13.0.
+# - Pinning the Python converter down to 2.13.0 (matching that floor) then
+#   broke on an unrelated ml_dtypes/onnx2tf incompatibility -- TF 2.13.0 is
+#   old enough that the modern onnx/onnx2tf/ml_dtypes stack no longer
+#   cleanly supports it.
+# ONNX Runtime has none of this fragility (already confirmed working:
+# paddleocr_det_onnx_cpu ran cleanly with real numbers on the first try),
+# so it's the only path here now. If TFLite is wanted again later, it needs
+# a genuinely different approach -- not another version-pin guess.
 #
 # IMPORTANT, read before wiring up real inference (not just benchmarking):
 # - Detection model output is a probability MAP (DB algorithm), not boxes
@@ -35,17 +60,6 @@ set -e
 #   320-wide crop for recognition) purely for consistent benchmarking --
 #   real accuracy will differ from whatever a production pipeline's adaptive
 #   resizing would produce.
-# - INT8 quantization is skipped here for the first pass, matching the
-#   caution learned from PicoDet/RTMDet: models with non-trivial output
-#   post-processing have shown real INT8 kernel/hang issues on this device.
-#   Add it later if the numbers below look promising enough to justify the
-#   extra validation effort.
-# - The DETECTION model's "*_dynamic.tflite" is actually plain float32, not
-#   truly dynamic-range quantized -- confirmed real incompatibility between
-#   dynamic-range's mixed int8-weight/float32-activation scheme and
-#   TFLite's TRANSPOSE_CONV kernel (used by this model's upsampling
-#   decoder). The recognition model's dynamic-range export is unaffected
-#   (different architecture, no transpose convs in its path).
 # ---------------------------------------------------------------------------
 
 OUT_DIR="../models/ocr"
@@ -64,33 +78,12 @@ pip install "paddlepaddle==2.6.2"
 # paddle2onnx pinned to 1.3.1 -- confirmed working version against
 # paddlepaddle 2.6.2 from the PicoDet export (2.1.0, whatever pip resolves
 # by default, is incompatible).
-# tensorflow pinned to 2.13.0 -- NOT 2.16.1/2.17.0. This app's classpath
-# unavoidably contains tensorflow-lite-api:2.13.0 regardless of what version
-# we declare for our own use, because ML Kit bundles that version internally
-# (confirmed via a real "Duplicate class org.tensorflow.lite.DataType"
-# build failure when the app's own TFLite AAR was bumped past it, from
-# Maven relocating org.tensorflow:tensorflow-lite -> com.google.ai.edge.litert
-# at 2.17.0 and colliding with ML Kit's bundled copy). 2.13.0 is the actual
-# floor present in the final app, not 2.16.1 -- pinning the export
-# converter there gives the best chance of avoiding another op-version
-# mismatch like the "FULLY_CONNECTED version 12" crash that started this.
-# NOTE: tf_keras (elsewhere in this repo, needed because TF 2.16+ defaults
-# to Keras 3) is deliberately OMITTED here -- TF 2.13.0 predates that switch
-# and still ships classic Keras directly; adding tf_keras unpinned could
-# pull in a newer, incompatible version expecting a newer core tensorflow.
-pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf tensorflow onnxruntime psutil
-# Explicit downgrade AFTER the main install, not a single pinned install
-# call above -- onnx2tf's own dependency resolution can pull in a newer
-# tensorflow than we want regardless of what we ask for in the same pip
-# call (the exact same class of issue hit with protobuf in
-# export_rtmdet.sh: a tool's own transitive requirement silently
-# overriding an earlier pin). This second call forces 2.13.0 to actually
-# win.
-pip install "tensorflow==2.13.0"
-# Pin protobuf from the start this time -- no MMDeploy-style tool here with
-# a conflicting older-protobuf requirement (unlike export_rtmdet.sh, where
-# this pin has to be delayed until after MMDeploy's own install).
-pip install --upgrade "protobuf>=5.28,<6"
+# NOTE: no tensorflow/onnx2tf/tf_keras here -- this script is ONNX-only now
+# (see the top-of-file note on why the TFLite conversion path was removed
+# entirely after a real, multi-round dead end chasing TFLite AAR/converter
+# version compatibility). onnxruntime is kept for validating the ONNX
+# output loads correctly; psutil is needed by paddle2onnx/paddle itself.
+pip install "paddle2onnx==1.3.1" onnx onnxruntime psutil
 
 echo "== Downloading PaddleOCR English mobile models (official release) =="
 DET_URL="https://paddleocr.bj.bcebos.com/PP-OCRv3/english/en_PP-OCRv3_det_infer.tar"
@@ -141,47 +134,7 @@ if [ ! -s paddleocr_det.onnx ]; then
     exit 1
 fi
 cp paddleocr_det.onnx "$OUT_DIR/paddleocr_det.onnx"
-echo "wrote $OUT_DIR/paddleocr_det.onnx (for direct ONNX Runtime benchmarking)"
-
-echo "== Converting detection model: ONNX -> SavedModel =="
-python3 -c "
-import numpy as np
-arr = np.random.rand(20, 128, 128, 3).astype(np.float32)
-np.save('calibration_image_sample_data_20x128x128x3_float32.npy', arr)
-"
-# -osd/--disable_group_convolution: same fixes learned from PicoDet --
-# signature defs for TFLiteConverter, and MobileNetV3-backbone depthwise
-# convs hitting the SavedModel/GroupConvolution incompatibility.
-# -ois x:1,3,640,640: this model's ONNX input is fully dynamic (not just
-# batch), confirmed via a real onnx2tf failure -- -b 1 alone only fixes the
-# batch dimension, not height/width. -ois (--overwrite_input_shape) pins the
-# whole shape explicitly; "x" is this model's actual input tensor name.
-onnx2tf -i paddleocr_det.onnx -o "$OUT_DIR/paddleocr_det_sm" \
-    -osd -ois x:1,3,640,640 --disable_group_convolution
-
-if [ ! -f "$OUT_DIR/paddleocr_det_sm/saved_model.pb" ]; then
-    echo "ERROR: onnx2tf did not produce a SavedModel for the detection model -- scroll up for its actual output/error." >&2
-    exit 1
-fi
-
-echo "== Using onnx2tf's own directly-emitted float32.tflite (not our own re-conversion) =="
-# First attempt re-converted the SavedModel ourselves with no optimizations,
-# expecting pure float32 -- but hit the EXACT SAME "weights->type !=
-# input->type (INT8 != FLOAT32)" error again, meaning the mixed-precision
-# weights aren't coming from our TFLiteConverter step at all. onnx2tf
-# itself auto-generates its own float32.tflite directly as part of its
-# default output (confirmed in earlier debugging: "Float32 tflite output
-# complete!" in its own log) -- using that file directly, instead of
-# running a second TFLiteConverter pass on top of the SavedModel, avoids
-# whatever onnx2tf-internal step was introducing the mixed types.
-DET_FLOAT32_SRC=$(find "$OUT_DIR/paddleocr_det_sm" -iname "*float32.tflite" | head -n 1)
-if [ -z "$DET_FLOAT32_SRC" ]; then
-    echo "ERROR: onnx2tf did not emit a float32.tflite for the detection model. Contents of $OUT_DIR/paddleocr_det_sm:" >&2
-    ls -la "$OUT_DIR/paddleocr_det_sm" >&2
-    exit 1
-fi
-cp "$DET_FLOAT32_SRC" "$OUT_DIR/paddleocr_det_dynamic.tflite"
-echo "wrote $OUT_DIR/paddleocr_det_dynamic.tflite (from $DET_FLOAT32_SRC -- plain float32, not actually dynamic-range quantized)"
+echo "wrote $OUT_DIR/paddleocr_det.onnx (for ONNX Runtime benchmarking -- see top-of-file note on why there's no TFLite output)"
 
 # ---------------------------------------------------------------------------
 # Recognition model
@@ -198,48 +151,20 @@ if [ ! -s paddleocr_rec.onnx ]; then
     exit 1
 fi
 cp paddleocr_rec.onnx "$OUT_DIR/paddleocr_rec.onnx"
-echo "wrote $OUT_DIR/paddleocr_rec.onnx (for direct ONNX Runtime benchmarking)"
-
-echo "== Converting recognition model: ONNX -> SavedModel =="
-# -ois: same fix as the detection model above -- fully dynamic input,
-# pinned explicitly (height 48, width 320, matching this model's fixed
-# benchmarking input size noted at the top of this script).
-onnx2tf -i paddleocr_rec.onnx -o "$OUT_DIR/paddleocr_rec_sm" \
-    -osd -ois x:1,3,48,320 --disable_group_convolution
-
-if [ ! -f "$OUT_DIR/paddleocr_rec_sm/saved_model.pb" ]; then
-    echo "ERROR: onnx2tf did not produce a SavedModel for the recognition model -- scroll up for its actual output/error." >&2
-    exit 1
-fi
-
-echo "== Quantizing recognition model to TFLite dynamic range =="
-python3 <<PYEOF
-import tensorflow as tf
-
-converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/paddleocr_rec_sm")
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-tflite_model = converter.convert()
-with open("$OUT_DIR/paddleocr_rec_dynamic.tflite", "wb") as f:
-    f.write(tflite_model)
-print("wrote $OUT_DIR/paddleocr_rec_dynamic.tflite")
-PYEOF
+echo "wrote $OUT_DIR/paddleocr_rec.onnx (for ONNX Runtime benchmarking)"
 
 echo ""
 echo "== Done. Exported: =="
-ls -la "$OUT_DIR"/paddleocr_*.tflite "$OUT_DIR"/paddleocr_*.onnx "$OUT_DIR"/en_dict.txt 2>/dev/null
+ls -la "$OUT_DIR"/paddleocr_*.onnx "$OUT_DIR"/en_dict.txt 2>/dev/null
 
 echo ""
 echo "Next:"
 echo "  1. Copy into the Android app's assets:"
-echo "     cp $OUT_DIR/paddleocr_det_dynamic.tflite $OUT_DIR/paddleocr_rec_dynamic.tflite \\"
-echo "        $OUT_DIR/paddleocr_det.onnx $OUT_DIR/paddleocr_rec.onnx $OUT_DIR/en_dict.txt \\"
+echo "     cp $OUT_DIR/paddleocr_det.onnx $OUT_DIR/paddleocr_rec.onnx $OUT_DIR/en_dict.txt \\"
 echo "        ../android-benchmark-app/app/src/main/assets/models/ocr/"
-echo "  2. Add benchmark_config.json entries -- TWO configs (det + rec), since"
-echo "     this is a two-stage pipeline unlike ML Kit's single black-box call."
-echo "     Detection: input_width/height 640 (fixed for benchmarking; real"
-echo "     deployment resizes per input image)."
-echo "     Recognition: input a fixed-width crop (e.g. 320x48) -- real"
-echo "     deployment resizes per detected text box's aspect ratio."
+echo "  2. benchmark_config.json entries: paddleocr_det_onnx_cpu, paddleocr_rec_onnx_cpu"
+echo "     (runtime: onnx) -- TFLite variants were removed after a real, multi-round"
+echo "     debugging dead end, see the note at the top of this script."
 echo "  3. Remember: detection outputs a probability MAP (needs threshold +"
 echo "     contour-finding for boxes), recognition outputs CTC sequences"
 echo "     (needs en_dict.txt-based decode) -- neither produces readable"

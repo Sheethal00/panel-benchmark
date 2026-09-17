@@ -380,15 +380,28 @@
       "labels_path": "models/detector/nanodet_plus_labels.txt"
     },
     {
-      "name": "paddleocr_mobile_cpu",
+      "name": "paddleocr_det_onnx_cpu",
       "task": "ocr",
-      "model_path": "models/ocr/paddleocr_mobile.tflite",
-      "runtime": "tflite",
+      "model_path": "models/ocr/paddleocr_det.onnx",
+      "runtime": "onnx",
+      "delegate": "cpu",
+      "input_width": 640,
+      "input_height": 640,
+      "warmup_runs": 10,
+      "timed_runs": 50,
+      "labels_path": "models/ocr/en_dict.txt"
+    },
+    {
+      "name": "paddleocr_rec_onnx_cpu",
+      "task": "ocr",
+      "model_path": "models/ocr/paddleocr_rec.onnx",
+      "runtime": "onnx",
       "delegate": "cpu",
       "input_width": 320,
       "input_height": 48,
       "warmup_runs": 10,
-      "timed_runs": 50
+      "timed_runs": 50,
+      "labels_path": "models/ocr/en_dict.txt"
     },
     {
       "name": "mlkit_text_recognition",
@@ -404,27 +417,9 @@
   ],
   "pipelines": [
     {
-      "name": "yolov8n_int8_to_paddleocr",
-      "detector_config": "yolov8n_int8_cpu_xnnpack",
-      "ocr_config": "paddleocr_mobile_cpu",
-      "iterations": 5
-    },
-    {
-      "name": "yolov8n_int8_gpu_to_paddleocr",
-      "detector_config": "yolov8n_int8_gpu",
-      "ocr_config": "paddleocr_mobile_cpu",
-      "iterations": 5
-    },
-    {
-      "name": "yolov8n_int8_to_mlkit",
-      "detector_config": "yolov8n_int8_cpu_xnnpack",
-      "ocr_config": "mlkit_text_recognition",
-      "iterations": 5
-    },
-    {
       "name": "yolo26n_416_int8_to_paddleocr",
       "detector_config": "yolo26n_416_int8_cpu",
-      "ocr_config": "paddleocr_mobile_cpu",
+      "ocr_config": "paddleocr_rec_onnx_cpu",
       "iterations": 5
     },
     {
