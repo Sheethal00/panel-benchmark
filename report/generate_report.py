@@ -147,7 +147,6 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     ocr_df = df[df["task"] == "ocr"].sort_values("latency_p50_ms")
     errors_df = df[df["error"] != ""]
     over_budget_df = df[(df["within_budget"] == "FAIL") & (df["error"] == "")]
-    over_budget_rss_df = df[(df["within_budget_rss"] == "FAIL") & (df["error"] == "")]
 
     pipeline_over_budget = pipeline_df[
         (pipeline_df["within_budget"] == "FAIL") & (pipeline_df["error"] == "")
@@ -156,7 +155,7 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
     def table_html(d):
         cols = ["config", "runtime", "requested_delegate", "actual_delegate",
                 "model_size_mb", "load_time_ms", "latency_p50_ms", "latency_p90_ms",
-                "latency_p99_ms", "rss_peak_mb", "within_budget_rss", "pss_peak_mb", "within_budget"]
+                "latency_p99_ms", "pss_peak_mb", "within_budget", "rss_peak_mb", "within_budget_rss"]
         styled = d[cols].copy()
         return styled.to_html(index=False, border=0, classes="results-table", escape=False,
                                formatters={
@@ -224,21 +223,24 @@ def render_html(df: "pd.DataFrame", pipeline_df: "pd.DataFrame", budget_mb: floa
   .fail {{ color: #b00020; font-weight: 600; }}
   .budget-banner {{ background: #fff8e1; border: 1px solid #f0d878; padding: 10px 14px;
                      border-radius: 6px; margin-bottom: 20px; font-size: 14px; }}
-  .budget-banner-critical {{ background: #fde8e8; border: 1px solid #e57373; padding: 10px 14px;
-                     border-radius: 6px; margin-bottom: 20px; font-size: 14px; }}
 </style>
 </head>
 <body>
   <h1>Panel Benchmark Report</h1>
   <div class="meta">Device: {device_label} &nbsp;|&nbsp; SoC: {soc_label} &nbsp;|&nbsp; {len(df)} isolated configs, {len(pipeline_df)} pipelines</div>
-  <div class="{"budget-banner-critical" if not over_budget_rss_df.empty else "budget-banner"}">
+  <div class="budget-banner">
     Target device profile: Android 9.0+, Snapdragon 845-era (2018+), 3GB RAM, CPU/GPU only.
     Memory budget: <strong>{budget_mb:.0f} MB</strong>.
-    <strong>within_budget</strong> (PSS via ActivityManager) --
+    Ranking/PASS-FAIL below uses <strong>within_budget</strong> (PSS via ActivityManager) as the
+    working metric for now --
     {"<strong>" + str(len(over_budget_df)) + " config(s) exceed this</strong>." if not over_budget_df.empty else "all configs within budget."}
-    <strong>within_budget_rss</strong> (RSS, confirmed via repeat runs to be more reliable --
-    PSS was found identical across unrelated configs in one session, i.e. stale/cached) --
-    {"<strong>" + str(len(over_budget_rss_df)) + " config(s) exceed this</strong>, including some that PASS on the PSS check -- trust this verdict over within_budget." if not over_budget_rss_df.empty else "all configs within budget."}
+    <strong>within_budget_rss</strong> (RSS) is shown for reference only, not currently trusted as
+    ground truth either: repeat runs showed it varies noticeably between otherwise-identical runs
+    (consistent with copy-on-write pages inherited from zygote at process-fork time still settling
+    early in a process's life, not a stable per-model signal). Neither memory metric is fully
+    reliable right now -- PSS is stale/cached, RSS is noisy -- so treat absolute memory numbers in
+    this report as rough indicators, not precise measurements, until a better sampling approach is
+    in place.
   </div>
 
   <h2>Detector models (isolated)</h2>
