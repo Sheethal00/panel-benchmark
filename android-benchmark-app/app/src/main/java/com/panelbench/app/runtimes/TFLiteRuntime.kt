@@ -85,6 +85,22 @@ class TFLiteRuntime : ModelRuntime {
         }
         val imageInputIndex = elementCounts.indices.maxByOrNull { elementCounts[it] } ?: 0
 
+        // TEMPORARY diagnostic logging -- the element-count heuristic above has
+        // now failed twice with the exact same "8 bytes vs 1228800 bytes"
+        // mismatch even after being applied, meaning the actual runtime shapes
+        // don't match what we assumed. Logging the real name/shape/element
+        // count of every input tensor here so the next fix is based on ground
+        // truth (check via `adb logcat -d | grep PanelBenchmarkDebug`) instead
+        // of another guess. Remove once the real cause is found and fixed.
+        for (i in 0 until inputCount) {
+            val t = interp.getInputTensor(i)
+            android.util.Log.d(
+                "PanelBenchmarkDebug",
+                "input[$i] name=${t.name()} shape=${t.shape().toList()} elementCount=${elementCounts[i]} " +
+                    "chosenAsImage=${i == imageInputIndex}"
+            )
+        }
+
         val inputs = arrayOfNulls<Any>(inputCount)
         for (i in 0 until inputCount) {
             inputs[i] = if (i == imageInputIndex) {
