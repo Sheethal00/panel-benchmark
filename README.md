@@ -48,6 +48,29 @@ report/                  Aggregates pulled results into one HTML/CSV comparison 
 results/                 Raw JSON pulled from device, one folder per run
 ```
 
+## Model files: hosted on Google Drive, not in this repo
+
+The app's bundled model assets (`android-benchmark-app/app/src/main/assets/models/`)
+are **not** tracked in git -- they're large binaries (dozens of `.tflite`/`.onnx` files
+across 6+ architectures) that would otherwise bloat repo size and clone time.
+`.gitignore` deliberately excludes both this folder and the top-level `models/`
+conversion working directory.
+
+**Before building the app for the first time (or after a fresh clone):**
+
+1. Download the models from Google Drive: `[ADD SHARED DRIVE LINK HERE]`
+2. Place them into `android-benchmark-app/app/src/main/assets/models/`, matching the
+   existing `detector/` and `ocr/` subfolder structure (check `benchmark_config.json`'s
+   `model_path` values if unsure where a specific file belongs).
+3. Then proceed with the normal build: `cd android-benchmark-app && ./gradlew installDebug`.
+
+If a model is missing from the Drive folder (e.g. after adding a new candidate
+architecture), regenerate it with the matching `conversion/export_*.sh` script rather
+than assuming it's just a stale copy -- see the Workflow section below for each script's
+usage. Whoever regenerates a model this way should re-upload it to the shared Drive
+folder so the rest of the team stays in sync, since there's no automated way (git or
+otherwise) to detect that a model file is out of date here.
+
 ## Two-phase plan: feasibility first, fine-tune the winner
 
 Every detector candidate benchmarked this week runs on stock COCO-pretrained weights, not
