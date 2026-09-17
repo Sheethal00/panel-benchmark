@@ -15,6 +15,9 @@ models/**/*.bin
 # Cloned upstream repos used by conversion scripts (e.g. export_yolox.sh)
 conversion/.yolox-src/
 conversion/.paddledetection-src/
+conversion/.mmdetection-src/
+conversion/.mmdeploy-src/
+conversion/rtmdet_work_dir/
 
 # Virtualenvs created by conversion scripts (e.g. export_picodet.sh creates
 # its own automatically) or by hand per the older scripts' instructions
