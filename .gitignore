@@ -6,14 +6,15 @@ android-benchmark-app/local.properties
 *.iml
 .idea/
 
-# Model binaries in the CONVERSION working directory (large, regenerable via
-# export scripts; leading slash anchors this to the top-level /models/ only
-# -- do NOT let this catch android-benchmark-app/app/src/main/assets/models/,
-# which IS tracked deliberately so the app is buildable out-of-the-box).
-/models/**/*.tflite
-/models/**/*.onnx
-/models/**/*.param
-/models/**/*.bin
+# Model binaries (large; hosted externally on Google Drive instead of git --
+# unanchored pattern deliberately catches BOTH the top-level /models/
+# conversion working directory AND
+# android-benchmark-app/app/src/main/assets/models/, since neither is
+# tracked in git under this approach).
+models/**/*.tflite
+models/**/*.onnx
+models/**/*.param
+models/**/*.bin
 
 # Cloned upstream repos used by conversion scripts (e.g. export_yolox.sh)
 conversion/.yolox-src/
