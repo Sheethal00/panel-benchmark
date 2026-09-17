@@ -24,12 +24,19 @@ set -e
 #   every other script in this repo. Give it its own venv if you're
 #   iterating on multiple exports -- Paddle's package ecosystem can be
 #   picky about coexisting with torch/tensorflow versions in one environment.
-# - Unlike YOLOX/NanoDet, PP-PicoDet's export commonly keeps NMS baked into
-#   the graph by default (confirmed via PaddleDetection's own GitHub issues:
-#   attempts to disable it via export_post_process=false/export_nms=false
-#   don't fully remove it in recent releases) -- so this export is
-#   effectively end-to-end like YOLO26, not raw-output-needs-NMS like
-#   YOLOX/NanoDet. Worth confirming when you get to real output parsing.
+# - Unlike YOLOX/NanoDet, PP-PicoDet's export keeps NMS baked into the graph
+#   (confirmed empirically, not just from PaddleDetection's GitHub issues:
+#   the exported model has a NonMaxSuppression op requiring a fixed batch
+#   size, and a second "scale_factor" input feeding Paddle's box-rescaling
+#   post-processing) -- so this export is effectively end-to-end like YOLO26,
+#   not raw-output-needs-NMS like YOLOX/NanoDet.
+#
+# - IMPORTANT: this model has TWO inputs ("image" and "scale_factor"), not
+#   one. The benchmark harness's TFLiteRuntime.kt/OnnxRuntime.kt currently
+#   only bind a single input tensor -- running these exported models through
+#   the actual Android app will need that runtime code extended for
+#   multi-input models before real on-device numbers can be collected, even
+#   though the export itself (this script) completes successfully.
 # - LCNet (PicoDet's backbone) uses depthwise-separable convolutions, which
 #   ONNX represents as GroupConvolution -- the same onnx2tf/SavedModel
 #   incompatibility hit with NanoDet's ShuffleNetV2. --disable_group_convolution
@@ -51,7 +58,10 @@ source "$VENV_DIR/bin/activate"
 
 echo "== Installing dependencies =="
 pip install "paddlepaddle==2.6.2"
-pip install paddle2onnx onnxsim onnx onnx2tf tensorflow tf_keras
+# paddle2onnx pinned to 1.3.1 -- 2.1.0 (whatever pip resolves by default) is
+# incompatible with paddlepaddle 2.6.2. onnx_graphsurgeon/sng4onnx are needed
+# by onnx2tf but aren't pulled in automatically by it.
+pip install "paddle2onnx==1.3.1" onnxsim onnx onnx_graphsurgeon sng4onnx onnx2tf tensorflow tf_keras
 
 echo "== Cloning PaddleDetection (Apache-2.0) if not already present =="
 if [ ! -d "$PICODET_SRC_DIR" ]; then
@@ -66,8 +76,10 @@ for SIZE in 320 416; do
     INFER_DIR="output_inference/picodet_s_${SIZE}_coco_lcnet"
 
     echo "== Exporting PicoDet-S ($SIZE): Paddle -> inference model =="
+    # use_gpu=false: the paddlepaddle install above is CPU-only, but
+    # export_model.py defaults to use_gpu=true and errors without this override.
     python tools/export_model.py -c "$CONFIG" \
-        -o weights="$WEIGHTS_URL" \
+        -o weights="$WEIGHTS_URL" use_gpu=false \
         --output_dir=output_inference
 
     if [ ! -f "$INFER_DIR/model.pdmodel" ]; then
@@ -104,11 +116,13 @@ np.save('calibration_image_sample_data_20x128x128x3_float32.npy', arr)
 
     echo "== Converting ONNX -> SavedModel ($SIZE) =="
     # -osd: required for TFLiteConverter.from_saved_model() below, same as
-    # every other script. --disable_group_convolution: required because
-    # LCNet's depthwise convs hit the same GroupConvolution/SavedModel
-    # incompatibility as NanoDet's ShuffleNetV2 -- see note at top of file.
+    # every other script. -b 1: fixes the batch dimension -- the exported
+    # graph's NonMaxSuppression op requires a fixed batch size, and a dynamic
+    # batch (onnx2tf's default) makes conversion fail. --disable_group_convolution:
+    # required because LCNet's depthwise convs hit the same GroupConvolution/
+    # SavedModel incompatibility as NanoDet's ShuffleNetV2 -- see note at top.
     onnx2tf -i "picodet_s_${SIZE}_sim.onnx" -o "$OUT_DIR/picodet_s_${SIZE}_sm" \
-        -osd --disable_group_convolution
+        -osd -b 1 --disable_group_convolution
 
     if [ ! -f "$OUT_DIR/picodet_s_${SIZE}_sm/saved_model.pb" ]; then
         echo "ERROR: onnx2tf did not produce a SavedModel for size $SIZE -- scroll up for its actual output/error." >&2
@@ -134,11 +148,19 @@ import tensorflow as tf
 
 IMG_SIZE = $SIZE
 
+# This SavedModel has TWO inputs, not one: "image" and "scale_factor".
+# scale_factor feeds Paddle's baked-in NMS/box-rescaling post-processing
+# (confirmed: PicoDet's export keeps NMS in the graph by default -- see the
+# note at the top of this script), so calibration data must supply both, in
+# this order, or from_saved_model()/representative_dataset fails.
+# scale_factor=[1.0, 1.0] means "no rescaling" (input size == model's
+# expected size), correct for calibration purposes.
 def representative_dataset():
     rng = np.random.default_rng(seed=0)
     for _ in range(20):
         img = rng.random((1, IMG_SIZE, IMG_SIZE, 3), dtype=np.float32)
-        yield [img]
+        scale_factor = np.array([[1.0, 1.0]], dtype=np.float32)
+        yield [scale_factor, img]
 
 converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/picodet_s_${SIZE}_sm")
 converter.optimizations = [tf.lite.Optimize.DEFAULT]
