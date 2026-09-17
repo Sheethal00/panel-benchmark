@@ -21,6 +21,7 @@ conversion/.yolox-src/
 conversion/.paddledetection-src/
 conversion/.mmdetection-src/
 conversion/.mmdeploy-src/
+conversion/.mmcv-src/
 conversion/.nanodet-src/
 conversion/rtmdet_work_dir/
 
