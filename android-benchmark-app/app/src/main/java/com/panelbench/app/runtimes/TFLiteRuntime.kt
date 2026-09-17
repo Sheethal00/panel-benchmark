@@ -70,67 +70,70 @@ class TFLiteRuntime : ModelRuntime {
 
         val resized = Bitmap.createScaledBitmap(input, inputW, inputH, true)
 
-        // Most models here have exactly one input (the image) and one output.
-        // Some (e.g. PP-PicoDet, exported with Paddle's NMS baked in) have a
-        // second input like "scale_factor" feeding that post-processing.
-        // Identify the image input by ELEMENT COUNT (it's always far larger
-        // than any auxiliary input), not by shape rank -- onnx2tf can report
-        // an auxiliary tensor's shape in a form that isn't cleanly 2D, which
-        // made a rank-based check misidentify it and try to copy the full
-        // image buffer into a tiny scale_factor slot (confirmed by a real
-        // "Cannot copy ... 8 bytes from a Java Buffer with 1228800 bytes" error).
-        val inputCount = interp.inputTensorCount
-        val elementCounts = IntArray(inputCount) { i ->
-            interp.getInputTensor(i).shape().fold(1) { acc, d -> acc * (if (d > 0) d else 1) }
-        }
-        val imageInputIndex = elementCounts.indices.maxByOrNull { elementCounts[it] } ?: 0
-
-        // TEMPORARY diagnostic logging -- the element-count heuristic above has
-        // now failed twice with the exact same "8 bytes vs 1228800 bytes"
-        // mismatch even after being applied, meaning the actual runtime shapes
-        // don't match what we assumed. Logging the real name/shape/element
-        // count of every input tensor here so the next fix is based on ground
-        // truth (check via `adb logcat -d | grep PanelBenchmarkDebug`) instead
-        // of another guess. Remove once the real cause is found and fixed.
-        for (i in 0 until inputCount) {
-            val t = interp.getInputTensor(i)
-            android.util.Log.d(
-                "PanelBenchmarkDebug",
-                "input[$i] name=${t.name()} shape=${t.shape().toList()} elementCount=${elementCounts[i]} " +
-                    "chosenAsImage=${i == imageInputIndex}"
-            )
+        // Most models here have exactly one input (the image) and one output,
+        // handled below via the plain positional run(). Some (e.g. PP-PicoDet,
+        // exported with Paddle's NMS baked in) have a second input like
+        // "scale_factor" feeding that post-processing.
+        //
+        // For those, use TFLite's SIGNATURE-based API (runSignature, keyed by
+        // name) rather than positional runForMultipleInputsOutputs(). This
+        // model's tensors are named "serving_default_scale_factor:0" /
+        // "serving_default_image:0" -- confirming an embedded signature def
+        // (from the -osd export flag) -- and a real, reproducible bug was
+        // confirmed here: even after correctly identifying which POSITIONAL
+        // index was the image tensor (verified via diagnostic logging: index 1
+        // = image, 307200 elements; index 0 = scale_factor, 2 elements), the
+        // native runForMultipleInputsOutputs() call still mismatched them,
+        // meaning positional index in the Java API doesn't reliably match the
+        // model's actual native input order for a signature-def model.
+        // Feeding by name via runSignature() sidesteps that ambiguity entirely.
+        if (interp.signatureKeys.isNotEmpty()) {
+            return runInferenceViaSignature(interp, resized)
         }
 
-        val inputs = arrayOfNulls<Any>(inputCount)
-        for (i in 0 until inputCount) {
-            inputs[i] = if (i == imageInputIndex) {
+        val inputBuffer = bitmapToByteBuffer(resized)
+        val outputShape = interp.getOutputTensor(0).shape()
+        val outputBuffer = ByteBuffer
+            .allocateDirect(outputShape.fold(4) { acc, d -> acc * d })
+            .order(ByteOrder.nativeOrder())
+        interp.run(inputBuffer, outputBuffer)
+        return InferenceOutput(numDetections = 0) // fill in post-processing per model family
+    }
+
+    private fun runInferenceViaSignature(interp: Interpreter, resized: Bitmap): InferenceOutput {
+        val signatureKey = interp.signatureKeys[0]
+        val inputNames = interp.getSignatureInputs(signatureKey)
+        val outputNames = interp.getSignatureOutputs(signatureKey)
+
+        // Identify the image input by ELEMENT COUNT (always far larger than any
+        // auxiliary input like scale_factor) -- more robust than shape rank,
+        // which onnx2tf can report in a form that isn't cleanly 2D for aux inputs.
+        val elementCounts = inputNames.associateWith { name ->
+            interp.getInputTensorFromSignature(name, signatureKey)
+                .shape().fold(1) { acc, d -> acc * (if (d > 0) d else 1) }
+        }
+        val imageInputName = elementCounts.maxByOrNull { it.value }?.key
+            ?: error("Model has a signature but no inputs")
+
+        val inputMap = inputNames.associateWith { name ->
+            if (name == imageInputName) {
                 bitmapToByteBuffer(resized)
             } else {
-                auxInputBuffer(interp.getInputTensor(i).shape())
+                auxInputBuffer(interp.getInputTensorFromSignature(name, signatureKey).shape())
             }
         }
 
         // NOTE: output CONTENTS are still model-specific -- this binds outputs
         // by shape so inference runs correctly, but decoding detections out of
-        // them (NMS-free single tensor for YOLO26, raw grid + separate NMS for
-        // YOLOX/NanoDet, Paddle's multiclass_nms3-style outputs for PicoDet)
-        // is left as a placeholder per model family, same as before.
-        val outputCount = interp.outputTensorCount
-        val outputMap = HashMap<Int, Any>()
-        for (i in 0 until outputCount) {
-            val shape = interp.getOutputTensor(i).shape()
-            outputMap[i] = ByteBuffer
-                .allocateDirect(shape.fold(4) { acc, d -> acc * d })
-                .order(ByteOrder.nativeOrder())
+        // them (Paddle's multiclass_nms3-style outputs for PicoDet, etc.) is
+        // left as a placeholder per model family, same as for single-input models.
+        val outputMap = outputNames.associateWith { name ->
+            val shape = interp.getOutputTensorFromSignature(name, signatureKey).shape()
+            ByteBuffer.allocateDirect(shape.fold(4) { acc, d -> acc * d }).order(ByteOrder.nativeOrder())
         }
 
-        if (inputCount == 1 && outputCount == 1) {
-            interp.run(inputs[0], outputMap[0])
-        } else {
-            interp.runForMultipleInputsOutputs(inputs, outputMap)
-        }
-
-        return InferenceOutput(numDetections = 0) // fill in post-processing per model family
+        interp.runSignature(inputMap, outputMap, signatureKey)
+        return InferenceOutput(numDetections = 0)
     }
 
     override fun release() {
