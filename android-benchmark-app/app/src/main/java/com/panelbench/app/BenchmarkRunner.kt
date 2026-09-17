@@ -31,7 +31,7 @@ class BenchmarkRunner(private val context: Context) {
 
         val result = try {
             val loadResult = runtime.load(context, config)
-            val afterLoad = MemoryProfiler.sample(context)
+            val afterLoad = sampleMemorySettled()
 
             // Warmup: JIT/delegate compilation, caches, first-run overhead -- excluded from
             // the timed numbers so they reflect steady-state field performance.
@@ -98,6 +98,29 @@ class BenchmarkRunner(private val context: Context) {
     }
 
     /**
+     * Samples memory multiple times with a short delay between each, returning
+     * the sample with the highest PSS seen. A single point-in-time snapshot
+     * taken immediately after load() can miss a real memory increase --
+     * observed in practice: several small models showed a ~0 delta between
+     * baseline and after-load despite genuinely allocating a few MB, likely
+     * because Android's PSS accounting hadn't caught up with newly-committed
+     * pages yet at that exact instant. Spreading samples over a short window
+     * makes it more likely to catch the settled, real value. Used only for
+     * post-load sampling (where the goal is catching a settling INCREASE) --
+     * not for post-release sampling, where taking a max could incorrectly
+     * mask how much memory was actually reclaimed.
+     */
+    private fun sampleMemorySettled(samples: Int = 3, delayMs: Long = 50): MemoryProfiler.MemorySample {
+        var best = MemoryProfiler.sample(context)
+        repeat(samples - 1) {
+            Thread.sleep(delayMs)
+            val s = MemoryProfiler.sample(context)
+            if (s.pssKb > best.pssKb) best = s
+        }
+        return best
+    }
+
+    /**
      * Runs detector -> OCR sequentially within ONE process lifetime (no force-stop between
      * stages, matching your real pipeline behavior). This is deliberately NOT just "run
      * config A's isolated numbers plus config B's isolated numbers" -- the point is to catch
@@ -126,7 +149,7 @@ class BenchmarkRunner(private val context: Context) {
             // --- Detector stage ---
             val detectorRuntime = createRuntime(detectorConfig.runtime)
             detectorRuntime.load(context, detectorConfig)
-            val afterDetectorLoad = MemoryProfiler.sample(context)
+            val afterDetectorLoad = sampleMemorySettled()
             trackPeak(afterDetectorLoad.pssKb)
 
             repeat(detectorConfig.warmupRuns) { detectorRuntime.runInference(sampleImage) }
@@ -150,7 +173,7 @@ class BenchmarkRunner(private val context: Context) {
             // --- OCR stage (detector should be fully released by now) ---
             val ocrRuntime = createRuntime(ocrConfig.runtime)
             ocrRuntime.load(context, ocrConfig)
-            val afterOcrLoad = MemoryProfiler.sample(context)
+            val afterOcrLoad = sampleMemorySettled()
             trackPeak(afterOcrLoad.pssKb)
 
             repeat(ocrConfig.warmupRuns) { ocrRuntime.runInference(sampleImage) }
