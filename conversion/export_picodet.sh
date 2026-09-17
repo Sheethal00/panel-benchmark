@@ -10,9 +10,13 @@ set -e
 # Usage:
 #   ./export_picodet.sh          # PicoDet-S (LCNet backbone), 320 and 416
 #
-# Run this INSIDE an activated venv:
-#   python3 -m venv panel-detector-venv && source panel-detector-venv/bin/activate
-#   ./export_picodet.sh
+# This script creates and activates its OWN dedicated venv (panel-picodet-venv,
+# alongside this script) automatically -- no need to pre-create/activate one
+# yourself. That's deliberate, not just convenience: PaddlePaddle is a
+# genuinely different framework stack from torch/tensorflow used elsewhere in
+# this repo, and its package ecosystem can be picky about coexisting with
+# other ML framework versions in one environment. Re-running this script
+# reuses the same venv if it already exists.
 #
 # IMPORTANT, read before wiring up real inference (not just benchmarking):
 # - Pipeline is PyTorch/TF-free until the final onnx2tf step: PaddlePaddle
@@ -36,6 +40,14 @@ set -e
 PICODET_SRC_DIR="./.paddledetection-src"
 OUT_DIR="../models/detector"
 mkdir -p "$OUT_DIR"
+
+VENV_DIR="./panel-picodet-venv"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "== Creating dedicated venv for PicoDet export: $VENV_DIR =="
+    python3 -m venv "$VENV_DIR"
+fi
+echo "== Activating $VENV_DIR =="
+source "$VENV_DIR/bin/activate"
 
 echo "== Installing dependencies =="
 pip install "paddlepaddle==2.6.2"

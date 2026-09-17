@@ -16,6 +16,10 @@ models/**/*.bin
 conversion/.yolox-src/
 conversion/.paddledetection-src/
 
+# Virtualenvs created by conversion scripts (e.g. export_picodet.sh creates
+# its own automatically) or by hand per the older scripts' instructions
+conversion/*venv*/
+
 # Runtime outputs
 results/*/
 report/*.html
