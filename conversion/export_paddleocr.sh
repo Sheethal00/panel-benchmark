@@ -64,19 +64,29 @@ pip install "paddlepaddle==2.6.2"
 # paddle2onnx pinned to 1.3.1 -- confirmed working version against
 # paddlepaddle 2.6.2 from the PicoDet export (2.1.0, whatever pip resolves
 # by default, is incompatible).
-# tensorflow pinned to 2.17.0 -- MUST match the Android app's
-# org.tensorflow:tensorflow-lite AAR version (app/build.gradle.kts). Started
-# at 2.16.1 (matching the app at the time), but that pin alone didn't
-# resolve a real "Didn't find op for builtin opcode 'FULLY_CONNECTED'
-# version '12'" crash even with both sides confirmed at 2.16.1 -- the
-# Python tensorflow package and the Android AAR are apparently built from
-# slightly different points in TF's release branches even at matching
-# version tags. Bumped both sides to 2.17.0 (the last release before
-# org.tensorflow:tensorflow-lite was renamed/relocated to
-# com.google.ai.edge.litert) to try the other direction. If this still
-# doesn't resolve it, the AAR may need migrating to the new litert artifact
-# instead of chasing version numbers within the deprecated one further.
-pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf "tensorflow==2.17.0" tf_keras onnxruntime psutil
+# tensorflow pinned to 2.13.0 -- NOT 2.16.1/2.17.0. This app's classpath
+# unavoidably contains tensorflow-lite-api:2.13.0 regardless of what version
+# we declare for our own use, because ML Kit bundles that version internally
+# (confirmed via a real "Duplicate class org.tensorflow.lite.DataType"
+# build failure when the app's own TFLite AAR was bumped past it, from
+# Maven relocating org.tensorflow:tensorflow-lite -> com.google.ai.edge.litert
+# at 2.17.0 and colliding with ML Kit's bundled copy). 2.13.0 is the actual
+# floor present in the final app, not 2.16.1 -- pinning the export
+# converter there gives the best chance of avoiding another op-version
+# mismatch like the "FULLY_CONNECTED version 12" crash that started this.
+# NOTE: tf_keras (elsewhere in this repo, needed because TF 2.16+ defaults
+# to Keras 3) is deliberately OMITTED here -- TF 2.13.0 predates that switch
+# and still ships classic Keras directly; adding tf_keras unpinned could
+# pull in a newer, incompatible version expecting a newer core tensorflow.
+pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf tensorflow onnxruntime psutil
+# Explicit downgrade AFTER the main install, not a single pinned install
+# call above -- onnx2tf's own dependency resolution can pull in a newer
+# tensorflow than we want regardless of what we ask for in the same pip
+# call (the exact same class of issue hit with protobuf in
+# export_rtmdet.sh: a tool's own transitive requirement silently
+# overriding an earlier pin). This second call forces 2.13.0 to actually
+# win.
+pip install "tensorflow==2.13.0"
 # Pin protobuf from the start this time -- no MMDeploy-style tool here with
 # a conflicting older-protobuf requirement (unlike export_rtmdet.sh, where
 # this pin has to be delayed until after MMDeploy's own install).

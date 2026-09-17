@@ -51,13 +51,23 @@ dependencies {
     // --- Candidate runtimes: comment out ones you're not testing to keep APK small ---
 
     // TFLite (CPU + NNAPI + GPU delegate)
-    implementation("org.tensorflow:tensorflow-lite:2.17.0")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.17.0")
+    // Pinned at 2.16.1 deliberately -- DO NOT bump to 2.17.0+ without reading this.
+    // Tried bumping to 2.17.0 to fix a "FULLY_CONNECTED version 12" op mismatch on a
+    // PaddleOCR export; that version triggers Maven's relocation of
+    // org.tensorflow:tensorflow-lite -> com.google.ai.edge.litert, which then hits a
+    // REAL "Duplicate class org.tensorflow.lite.DataType" build failure against ML
+    // Kit's own internally-bundled tensorflow-lite-api:2.13.0. Excluding that from ML
+    // Kit risks breaking its OCR functionality, so this was reverted. The fix for
+    // op-version mismatches on individual exported models belongs on the CONVERSION
+    // side (pin the Python `tensorflow` package used for export as low as 2.13.0,
+    // matching the floor ML Kit forces into this app's actual classpath), not here.
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
     // Required alongside tensorflow-lite-gpu: GpuDelegateFactory (and the Options class
     // GpuDelegate.Options now extends) live in this separate artifact. Without it, the
     // compiler can locate GpuDelegate.Options but fails to resolve its supertype --
     // a known packaging split (tensorflow/tensorflow#57934), not a version mismatch.
-    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.17.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 
     // ONNX Runtime Mobile (CPU + NNAPI)
