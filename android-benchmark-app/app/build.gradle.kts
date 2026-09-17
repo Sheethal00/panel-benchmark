@@ -51,13 +51,13 @@ dependencies {
     // --- Candidate runtimes: comment out ones you're not testing to keep APK small ---
 
     // TFLite (CPU + NNAPI + GPU delegate)
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.17.0")
     // Required alongside tensorflow-lite-gpu: GpuDelegateFactory (and the Options class
     // GpuDelegate.Options now extends) live in this separate artifact. Without it, the
     // compiler can locate GpuDelegate.Options but fails to resolve its supertype --
     // a known packaging split (tensorflow/tensorflow#57934), not a version mismatch.
-    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.17.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 
     // ONNX Runtime Mobile (CPU + NNAPI)

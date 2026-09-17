@@ -64,22 +64,23 @@ pip install "paddlepaddle==2.6.2"
 # paddle2onnx pinned to 1.3.1 -- confirmed working version against
 # paddlepaddle 2.6.2 from the PicoDet export (2.1.0, whatever pip resolves
 # by default, is incompatible).
-# tensorflow pinned to 2.16.1 -- MUST match the Android app's
-# org.tensorflow:tensorflow-lite AAR version (app/build.gradle.kts). An
-# unpinned/newer tensorflow's converter can emit op versions the app's
-# runtime doesn't have (confirmed via a real "Didn't find op for builtin
-# opcode 'FULLY_CONNECTED' version '12'" crash) -- note that
-# org.tensorflow:tensorflow-lite is itself a deprecated/relocated artifact
-# (moved to com.google.ai.edge.litert), frozen at 2.17.0 as its last
-# release, so this pin matters more than it would for an actively-updated
-# dependency. If the app's TFLite AAR version ever changes, this pin needs
-# to change too.
-pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf "tensorflow==2.16.1" tf_keras onnxruntime psutil
+# tensorflow pinned to 2.17.0 -- MUST match the Android app's
+# org.tensorflow:tensorflow-lite AAR version (app/build.gradle.kts). Started
+# at 2.16.1 (matching the app at the time), but that pin alone didn't
+# resolve a real "Didn't find op for builtin opcode 'FULLY_CONNECTED'
+# version '12'" crash even with both sides confirmed at 2.16.1 -- the
+# Python tensorflow package and the Android AAR are apparently built from
+# slightly different points in TF's release branches even at matching
+# version tags. Bumped both sides to 2.17.0 (the last release before
+# org.tensorflow:tensorflow-lite was renamed/relocated to
+# com.google.ai.edge.litert) to try the other direction. If this still
+# doesn't resolve it, the AAR may need migrating to the new litert artifact
+# instead of chasing version numbers within the deprecated one further.
+pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf "tensorflow==2.17.0" tf_keras onnxruntime psutil
 # Pin protobuf from the start this time -- no MMDeploy-style tool here with
 # a conflicting older-protobuf requirement (unlike export_rtmdet.sh, where
 # this pin has to be delayed until after MMDeploy's own install).
 pip install --upgrade "protobuf>=5.28,<6"
-pip install --upgrade ml-dtypes
 
 echo "== Downloading PaddleOCR English mobile models (official release) =="
 DET_URL="https://paddleocr.bj.bcebos.com/PP-OCRv3/english/en_PP-OCRv3_det_infer.tar"
