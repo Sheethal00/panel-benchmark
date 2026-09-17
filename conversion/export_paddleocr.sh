@@ -38,8 +38,14 @@ set -e
 # - INT8 quantization is skipped here for the first pass, matching the
 #   caution learned from PicoDet/RTMDet: models with non-trivial output
 #   post-processing have shown real INT8 kernel/hang issues on this device.
-#   Add it later if the dynamic-range numbers look promising enough to
-#   justify the extra validation effort.
+#   Add it later if the numbers below look promising enough to justify the
+#   extra validation effort.
+# - The DETECTION model's "*_dynamic.tflite" is actually plain float32, not
+#   truly dynamic-range quantized -- confirmed real incompatibility between
+#   dynamic-range's mixed int8-weight/float32-activation scheme and
+#   TFLite's TRANSPOSE_CONV kernel (used by this model's upsampling
+#   decoder). The recognition model's dynamic-range export is unaffected
+#   (different architecture, no transpose convs in its path).
 # ---------------------------------------------------------------------------
 
 OUT_DIR="../models/ocr"
@@ -58,11 +64,22 @@ pip install "paddlepaddle==2.6.2"
 # paddle2onnx pinned to 1.3.1 -- confirmed working version against
 # paddlepaddle 2.6.2 from the PicoDet export (2.1.0, whatever pip resolves
 # by default, is incompatible).
-pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf tensorflow tf_keras onnxruntime psutil
+# tensorflow pinned to 2.16.1 -- MUST match the Android app's
+# org.tensorflow:tensorflow-lite AAR version (app/build.gradle.kts). An
+# unpinned/newer tensorflow's converter can emit op versions the app's
+# runtime doesn't have (confirmed via a real "Didn't find op for builtin
+# opcode 'FULLY_CONNECTED' version '12'" crash) -- note that
+# org.tensorflow:tensorflow-lite is itself a deprecated/relocated artifact
+# (moved to com.google.ai.edge.litert), frozen at 2.17.0 as its last
+# release, so this pin matters more than it would for an actively-updated
+# dependency. If the app's TFLite AAR version ever changes, this pin needs
+# to change too.
+pip install "paddle2onnx==1.3.1" onnx onnx_graphsurgeon sng4onnx onnx2tf "tensorflow==2.16.1" tf_keras onnxruntime psutil
 # Pin protobuf from the start this time -- no MMDeploy-style tool here with
 # a conflicting older-protobuf requirement (unlike export_rtmdet.sh, where
 # this pin has to be delayed until after MMDeploy's own install).
 pip install --upgrade "protobuf>=5.28,<6"
+pip install --upgrade ml-dtypes
 
 echo "== Downloading PaddleOCR English mobile models (official release) =="
 DET_URL="https://paddleocr.bj.bcebos.com/PP-OCRv3/english/en_PP-OCRv3_det_infer.tar"
@@ -136,17 +153,24 @@ if [ ! -f "$OUT_DIR/paddleocr_det_sm/saved_model.pb" ]; then
     exit 1
 fi
 
-echo "== Quantizing detection model to TFLite dynamic range =="
-python3 <<PYEOF
-import tensorflow as tf
-
-converter = tf.lite.TFLiteConverter.from_saved_model("$OUT_DIR/paddleocr_det_sm")
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-tflite_model = converter.convert()
-with open("$OUT_DIR/paddleocr_det_dynamic.tflite", "wb") as f:
-    f.write(tflite_model)
-print("wrote $OUT_DIR/paddleocr_det_dynamic.tflite")
-PYEOF
+echo "== Using onnx2tf's own directly-emitted float32.tflite (not our own re-conversion) =="
+# First attempt re-converted the SavedModel ourselves with no optimizations,
+# expecting pure float32 -- but hit the EXACT SAME "weights->type !=
+# input->type (INT8 != FLOAT32)" error again, meaning the mixed-precision
+# weights aren't coming from our TFLiteConverter step at all. onnx2tf
+# itself auto-generates its own float32.tflite directly as part of its
+# default output (confirmed in earlier debugging: "Float32 tflite output
+# complete!" in its own log) -- using that file directly, instead of
+# running a second TFLiteConverter pass on top of the SavedModel, avoids
+# whatever onnx2tf-internal step was introducing the mixed types.
+DET_FLOAT32_SRC=$(find "$OUT_DIR/paddleocr_det_sm" -iname "*float32.tflite" | head -n 1)
+if [ -z "$DET_FLOAT32_SRC" ]; then
+    echo "ERROR: onnx2tf did not emit a float32.tflite for the detection model. Contents of $OUT_DIR/paddleocr_det_sm:" >&2
+    ls -la "$OUT_DIR/paddleocr_det_sm" >&2
+    exit 1
+fi
+cp "$DET_FLOAT32_SRC" "$OUT_DIR/paddleocr_det_dynamic.tflite"
+echo "wrote $OUT_DIR/paddleocr_det_dynamic.tflite (from $DET_FLOAT32_SRC -- plain float32, not actually dynamic-range quantized)"
 
 # ---------------------------------------------------------------------------
 # Recognition model
