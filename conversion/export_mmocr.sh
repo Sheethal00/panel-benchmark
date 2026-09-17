@@ -67,8 +67,14 @@ echo "== Installing OpenMMLab stack via mim =="
 pip install openmim
 mim install mmengine
 mim install "mmcv>=2.0.0"
-mim install "mmdet>=3.0.0"
-mim install "mmocr>=1.0.0"
+# mmdet range constrained by MMOCR itself -- confirmed via a real
+# "MMDetection 3.3.0 is incompatible with MMOCR 1.0.1" assertion. An
+# unpinned/latest mmdet resolves past what MMOCR 1.0.1 actually supports.
+mim install "mmdet>=3.0.0,<3.2.0"
+# Pinned to the exact version the mmdet<3.2.0 constraint above was verified
+# against -- a later mmocr release could have a different compatible mmdet
+# range, silently reintroducing this same class of conflict.
+mim install "mmocr==1.0.1"
 
 echo "== Installing ONNX Runtime (validation) + misc =="
 pip install onnx onnxruntime psutil
