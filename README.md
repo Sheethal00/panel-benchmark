@@ -46,6 +46,7 @@ test_data/               Sample panel images + ground-truth annotations for accu
 scripts/                 Host-side ADB driver to run the full matrix unattended
 report/                  Aggregates pulled results into one HTML/CSV comparison report
 results/                 Raw JSON pulled from device, one folder per run
+handoffs/                Standalone task docs for remaining work -- see "Remaining work" below
 ```
 
 ## Model files: hosted on Google Drive, not in this repo
@@ -228,17 +229,27 @@ in Excel/Sheets if you want to slice differently.
   devices/ops -- always check `actual_delegate_info` in results, not just what you configured)
 - Device model / SoC / Android version the run happened on
 
-## What this skeleton does NOT do yet (fill in per your models)
-- **Output post-processing**: `TFLiteRuntime.runInference` / `OnnxRuntime.runInference`
-  bind inputs and run the graph, but detection-box decoding (NMS, anchor decoding) and
-  OCR sequence decoding (CTC/attention) are model-family-specific -- wire those up once
-  you've picked real candidate architectures.
-- **Accuracy scoring**: `test_data/annotations.json` gives you a ground-truth schema;
-  add a scoring pass (mAP for detector, CER for OCR) once post-processing is in place,
-  so the report can show accuracy alongside latency/memory rather than just performance.
-- **ML Kit runtime binding**: config schema and runtime factory already have a slot for
-  `"runtime": "mlkit"` as a zero-integration-cost OCR baseline; implement `MlKitOcrRuntime`
-  in `runtimes/` following the same `ModelRuntime` interface.
+## Remaining work
+
+Feasibility benchmarking (6 detector architectures, 4 OCR candidates) is done --
+YOLOX-Nano (Apache-2.0) + ML Kit were chosen. What's left to turn this into the
+real app is broken into standalone handoff docs under `handoffs/`, each
+self-contained enough to open in its own conversation:
+
+| # | Doc | What it covers |
+|---|-----|-----------------|
+| 1 | [`handoffs/01-detector-decode-nms.md`](handoffs/01-detector-decode-nms.md) | Wire up real YOLOX output decoding + NMS -- currently every detector returns an empty result; this is the hard blocker for everything below. |
+| 2 | [`handoffs/02-accuracy-validation.md`](handoffs/02-accuracy-validation.md) | Real mAP (detector) and text accuracy (OCR) numbers -- everything measured so far is latency/memory only. |
+| 3 | [`handoffs/03-camera-capture-flow.md`](handoffs/03-camera-capture-flow.md) | Real camera capture (CameraX is a dependency but unused) -- the app has only ever run against one static test image. |
+| 4 | [`handoffs/04-end-to-end-pipeline-csv.md`](handoffs/04-end-to-end-pipeline-csv.md) | The actual product: photo -> detect -> per-crop OCR -> CSV. Depends on #1 and #3. |
+| 5 | [`handoffs/05-cleanup-housekeeping.md`](handoffs/05-cleanup-housekeeping.md) | Independent loose ends: a final consolidated report, the README Drive link, and the PSS/RSS memory-metric reliability question. |
+
+Suggested order: **1 is a hard blocker** for 2 and 4; 2 and 3 can run in
+parallel once 1 is done; 4 needs both 1 and 3; 5 is independent and can be
+picked up anytime.
+
+YOLOX fine-tuning on real annotated panel photos is already underway in a
+separate conversation, independent of the above.
 
 ## Notes
 - Benchmark on physical devices, not emulators -- NNAPI/GPU delegate behavior and available
