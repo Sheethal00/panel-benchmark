@@ -3,6 +3,8 @@ package com.panelbench.app
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -237,7 +240,8 @@ private fun PipelineCard(
     }
     RunnableCard(
         title = pipeline.name,
-        chips = listOf("pipeline", "det: ${pipeline.detectorConfigName}", "ocr: ${pipeline.ocrConfigName}"),
+        chips = listOf("pipeline"),
+        subtitle = "det: ${pipeline.detectorConfigName}  →  ocr: ${pipeline.ocrConfigName}",
         isRunning = isRunning,
         isBusy = isBusy,
         isError = result?.error != null,
@@ -247,6 +251,7 @@ private fun PipelineCard(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RunnableCard(
     title: String,
@@ -256,7 +261,8 @@ private fun RunnableCard(
     isError: Boolean,
     isSuccess: Boolean,
     summaryLines: List<String>,
-    onRun: () -> Unit
+    onRun: () -> Unit,
+    subtitle: String? = null
 ) {
     Card(
         colors = CardDefaults.cardColors(
@@ -290,11 +296,22 @@ private fun RunnableCard(
                         )
                         Box(modifier = Modifier.size(6.dp))
                     }
-                    Text(title, fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        title,
+                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
-                Row(
+                // FlowRow (not a plain Row) so chips wrap onto a new line instead of
+                // overflowing/getting cut off when they don't all fit on one line --
+                // confirmed real on pipeline cards, whose detector/OCR names push chip
+                // rows wider than a plain Row handles.
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
                     chips.forEach { label ->
@@ -306,6 +323,22 @@ private fun RunnableCard(
                             )
                         )
                     }
+                }
+
+                // Long, variable-length free text (e.g. a pipeline's detector/OCR config
+                // names) goes here, NOT as a chip -- chips are for short fixed tags, and
+                // cramming long dynamic text into one caused exactly the overlapping/
+                // cut-off look this replaced. Truncated with an ellipsis if still too
+                // long for the card rather than wrapping awkwardly or overflowing.
+                subtitle?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
                 }
 
                 summaryLines.forEach { line ->

@@ -117,7 +117,7 @@ data class PipelineBenchmarkResult(
     val soc: String = Build.HARDWARE,
     val error: String? = null
 ) {
-    private fun percentile(values: List<Double>, p: Double): Double {
+    fun percentile(values: List<Double>, p: Double): Double {
         if (values.isEmpty()) return -1.0
         val sorted = values.sorted()
         val idx = (p / 100.0 * (sorted.size - 1)).toInt().coerceIn(0, sorted.size - 1)

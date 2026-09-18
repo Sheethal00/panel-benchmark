@@ -24,6 +24,16 @@ android {
         }
     }
 
+    buildFeatures {
+        compose = true
+    }
+    composeOptions {
+        // Compose Compiler 1.5.14 targets Kotlin 1.9.24 exactly (confirmed against
+        // Google's official compatibility table) -- this project's Kotlin version is
+        // pinned at 1.9.24, so this must move together with any future Kotlin bump.
+        kotlinCompilerExtensionVersion = "1.5.14"
+    }
+
     // Avoid re-compressing model files; some runtimes require them uncompressed in the APK
     androidResources {
         noCompress += listOf("tflite", "onnx", "ncnn", "param", "bin")
@@ -47,6 +57,18 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // Jetpack Compose (BOM pins all Compose artifact versions together --
+    // 2024.05.00 is contemporaneous with Compose Compiler 1.5.14 above)
+    implementation(platform("androidx.compose:compose-bom:2024.05.00"))
+    implementation("androidx.activity:activity-compose:1.9.0")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
     // --- Candidate runtimes: comment out ones you're not testing to keep APK small ---
 
