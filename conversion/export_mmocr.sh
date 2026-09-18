@@ -12,40 +12,38 @@ set -e
 # This script creates and activates its OWN dedicated venv
 # (panel-mmocr-venv), same reasoning as export_picodet.sh/export_rtmdet.sh.
 #
-# THIS IS THE SECOND ATTEMPT at the full toolchain. The first hit SEVEN
-# distinct real environment failures in a row before finally identifying
-# the actual root cause of the last one (mmcv's compiled C++ ops extension
-# not building even with the documented MMCV_WITH_OPS=1 flag):
+# THIRD ATTEMPT at getting this environment right, and finally the simple
+# one -- worth knowing why the first two weren't:
 #
-#   1. setuptools<81 needed (MMDeploy's own requirement)
-#   2. ...but pip install -e needs setuptools>=64 for the build_editable
-#      hook -- narrowed to a range satisfying both
-#   3. pip's build ISOLATION creates a separate environment for the actual
-#      build step with its own independently-resolved setuptools, ignoring
-#      the pin above entirely -- fixed with --no-build-isolation for the
-#      editable install specifically
-#   4. mmcv, needing to build from source (no prebuilt wheel matches recent
-#      torch releases), hit the SAME isolated-setuptools problem via
-#      `mim install` (which doesn't expose --no-build-isolation) --
-#      generalized the fix with PIP_CONSTRAINT, which pip DOES apply to
-#      isolated build environments
-#   5. mmdet's installed version (latest) is incompatible with mmocr 1.0.1
-#      -- pinned mmdet<3.2.0
-#   6. mmdet 3.1.x's compatible mmcv range is narrower still -- pinned
-#      mmcv<2.1.0
-#   7. mmcv (still installed via `mim install`, i.e. still pip under the
-#      hood) built successfully but WITHOUT its compiled ops extension
-#      (`ModuleNotFoundError: No module named 'mmcv._ext'`) even with
-#      MMCV_WITH_OPS=1 exported -- because arbitrary env vars, unlike
-#      PIP_CONSTRAINT, are not guaranteed to reach pip's isolated build
-#      subprocess the way the mmcv build script expects to read them.
+# Attempt 1 hit SEVEN distinct real environment failures in a row
+# (setuptools/build-isolation conflicts, cascading mmocr->mmdet->mmcv
+# version constraints, and finally mmcv's compiled ops extension not
+# building even with the documented MMCV_WITH_OPS=1 flag). Attempt 2 fixed
+# that last failure by building mmcv from source via `python setup.py
+# install` directly (bypassing pip's build isolation, which was silently
+# dropping MMCV_WITH_OPS=1) -- pinned to mmcv v2.0.1, which doesn't have a
+# prebuilt wheel for recent torch releases, hence needing a source build
+# at all.
 #
-# THE ACTUAL FIX (this version): stop routing mmcv through `pip`/`mim`
-# entirely. Build it the way mmcv's own documentation describes for exactly
-# this situation (https://mmcv.readthedocs.io/en/latest/get_started/build.html):
-# clone the source and run `python setup.py install` directly. This runs in
-# the current interpreter with no isolated subprocess at all, so
-# MMCV_WITH_OPS=1 is guaranteed to be read correctly.
+# The actual fix, confirmed against MMOCR's own official install docs
+# (https://mmocr.readthedocs.io/en/dev-1.x/get_started/install.html) and a
+# real successful run (`tools/infer.py` producing real OCR output, then a
+# real successful ONNX export): mmcv==2.1.0 -- ONE version newer than what
+# attempt 2 used -- has a prebuilt wheel available, so it never needs to
+# build from source in the first place. All that setup.py/MMCV_WITH_OPS
+# machinery in attempt 2 was solving a problem specific to picking an
+# older mmcv version than necessary, not a problem with `pip`/`mim`
+# installs generally. Simple `mim install "mmcv==2.1.0"` is sufficient.
+#
+# The mmdet<3.2.0 / mmocr==1.0.1 pins from attempt 1 remain correct --
+# confirmed exactly matching MMOCR's own documented compatibility table
+# (mmengine 0.7.1-1.1.0, mmcv 2.0.0rc4-2.1.0, mmdet 3.0.0rc5-3.2.0 for
+# both mmocr 1.0.1 and dev-1.x).
+#
+# The PIP_CONSTRAINT / --no-build-isolation / TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD
+# fixes below are still needed -- those are for MMDeploy specifically
+# (the separate ONNX-export tool, not covered by MMOCR's own install docs
+# at all), not for the mmcv version issue this attempt fixes.
 #
 # IMPORTANT, read before wiring up real inference (not just benchmarking):
 # - DBNet's output is a probability MAP, not boxes directly -- needs
@@ -62,7 +60,6 @@ set -e
 
 OUT_DIR="../models/ocr"
 MMDEPLOY_SRC_DIR="./.mmdeploy-src"
-MMCV_SRC_DIR="./.mmcv-src"
 mkdir -p "$OUT_DIR"
 
 VENV_DIR="./panel-mmocr-venv"
@@ -73,9 +70,9 @@ fi
 echo "== Activating $VENV_DIR =="
 source "$VENV_DIR/bin/activate"
 
-# PIP_CONSTRAINT applies to pip's isolated build environments (for anything
-# still built via pip/mim below, e.g. mmdeploy's editable install) --
-# unlike a plain `pip install "setuptools<81"`, which does NOT reach those.
+# PIP_CONSTRAINT applies to pip's isolated build environments (needed for
+# MMDeploy's editable install below) -- unlike a plain
+# `pip install "setuptools<81"`, which does NOT reach those.
 cat > /tmp/panel_mmocr_pip_constraints.txt << 'CONSTRAINTS'
 setuptools>=64,<81
 CONSTRAINTS
@@ -84,28 +81,15 @@ export PIP_CONSTRAINT=/tmp/panel_mmocr_pip_constraints.txt
 echo "== Installing PyTorch (CPU) =="
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-echo "== Installing mmengine =="
+echo "== Installing OpenMMLab stack via mim =="
 pip install openmim
 mim install mmengine
-
-echo "== Building mmcv FROM SOURCE via setup.py (not pip/mim) =="
-# This is the actual fix for the 7th failure above: MMCV_WITH_OPS=1 only
-# reliably takes effect when mmcv's setup.py runs directly in this
-# interpreter, not inside pip's isolated build subprocess. v2.0.1 pinned
-# to match the mmdet<3.2.0 / mmcv<2.1.0 compatibility chain discovered
-# during the first attempt.
-if [ ! -d "$MMCV_SRC_DIR" ]; then
-    git clone --branch v2.0.1 --depth 1 https://github.com/open-mmlab/mmcv.git "$MMCV_SRC_DIR"
-fi
-pip install -r "$MMCV_SRC_DIR/requirements/runtime.txt"
-(
-    cd "$MMCV_SRC_DIR"
-    export MMCV_WITH_OPS=1
-    python setup.py install
-)
-python3 -c "import mmcv; import mmcv._ext; print('mmcv._ext OK, mmcv version:', mmcv.__version__)"
-
-echo "== Installing mmdet + mmocr (pinned to the compatibility chain above) =="
+# mmcv==2.1.0: has a prebuilt wheel for recent torch releases (2.0.1 does
+# not, confirmed the hard way) -- see the header note above. Also the top
+# of MMOCR's own documented compatible range (2.0.0rc4 <= mmcv < 2.1.0 per
+# the docs table, though 2.1.0 itself was confirmed working in practice).
+mim install "mmcv==2.1.0"
+# mmdet/mmocr range confirmed against MMOCR's own compatibility table.
 mim install "mmdet>=3.0.0,<3.2.0"
 mim install "mmocr==1.0.1"
 
